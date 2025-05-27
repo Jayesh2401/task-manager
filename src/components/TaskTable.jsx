@@ -1,0 +1,791 @@
+import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react'
+import "react-datepicker/dist/react-datepicker.css"
+import EditableCell from './EditableCell'
+import DropdownModal from './modals/DropdownModal'
+import FrequencyModal from './modals/FrequencyModal'
+import AddUserModal from './modals/AddUserModal'
+
+const TaskTable = ({
+  tasks,
+  dataManager,
+  selectedRows,
+  setSelectedRows,
+  updateTask,
+  addNewTask,
+  deleteSelectedTasks,
+  onColumnAction
+}) => {
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' })
+  const [activeModal, setActiveModal] = useState(null)
+  const [modalPosition, setModalPosition] = useState({ x: 0, y: 0 })
+  const [currentCell, setCurrentCell] = useState({ taskId: null, field: null })
+  const [refreshingColumns, setRefreshingColumns] = useState(new Set())
+  const [showDeleteList, setShowDeleteList] = useState(false)
+  const [deleteListType, setDeleteListType] = useState('')
+  const [deletingItems, setDeletingItems] = useState(new Set())
+  const tableRef = useRef(null)
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth)
+
+  // Update window width on resize
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth)
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  // Define table columns with responsive widths
+  const getColumnWidth = (key) => {
+    const baseWidths = {
+      client: 120,
+      task: 150,
+      subTask: 150,
+      estimatedTime: 80,
+      allottedTo: 140,
+      teamLeader: 140,
+      priority: 100,
+      dueDate: 120,
+      frequency: 120,
+      comment: 200,
+      status: 120,
+      timeTaken: 80
+    }
+
+    // Adjust widths based on window size
+    const scaleFactor = windowWidth < 1200 ? 0.8 : windowWidth < 1600 ? 0.9 : 1
+    return Math.floor(baseWidths[key] * scaleFactor)
+  }
+
+  const columns = [
+    { key: 'client', label: 'Client', type: 'dropdown', width: getColumnWidth('client') },
+    { key: 'task', label: 'Task', type: 'dropdown', width: getColumnWidth('task') },
+    { key: 'subTask', label: 'Sub Task', type: 'dropdown', width: getColumnWidth('subTask') },
+    { key: 'estimatedTime', label: 'ET', type: 'number', width: getColumnWidth('estimatedTime') },
+    { key: 'allottedTo', label: 'Allotted To', type: 'dropdown', width: getColumnWidth('allottedTo') },
+    { key: 'teamLeader', label: 'Team Leader', type: 'dropdown', width: getColumnWidth('teamLeader') },
+    { key: 'priority', label: 'Priority', type: 'dropdown', width: getColumnWidth('priority') },
+    { key: 'dueDate', label: 'Due Date', type: 'date', width: getColumnWidth('dueDate') },
+    { key: 'frequency', label: 'Frequency', type: 'frequency', width: getColumnWidth('frequency') },
+    { key: 'comment', label: 'Comment', type: 'textarea', width: getColumnWidth('comment') },
+    { key: 'status', label: 'Status', type: 'dropdown', width: getColumnWidth('status') },
+    { key: 'timeTaken', label: 'Time Taken', type: 'number', width: getColumnWidth('timeTaken') }
+  ]
+
+  const priorityOptions = useMemo(() => ['Low', 'Medium', 'High', 'Critical'], [])
+  const statusOptions = useMemo(() => ['Todo', 'In Progress', 'Completed', 'Archived'], [])
+
+  // Handle row selection
+  const handleRowSelect = useCallback((taskId) => {
+    setSelectedRows(prev =>
+      prev.includes(taskId)
+        ? prev.filter(id => id !== taskId)
+        : [...prev, taskId]
+    )
+  }, [setSelectedRows])
+
+  const handleSelectAll = useCallback(() => {
+    setSelectedRows(selectedRows.length === tasks.length ? [] : tasks.map(task => task.id))
+  }, [setSelectedRows, selectedRows, tasks])
+
+  // Handle cell click for dropdowns and special inputs
+  const handleCellClick = useCallback((event, taskId, field) => {
+    event.preventDefault()
+    event.stopPropagation()
+
+    const rect = event.currentTarget.getBoundingClientRect()
+    setModalPosition({ x: rect.left, y: rect.bottom + 5 })
+    setCurrentCell({ taskId, field })
+
+    if (['client', 'task', 'subTask', 'allottedTo', 'teamLeader', 'priority', 'status'].includes(field)) {
+      setActiveModal('dropdown')
+    } else if (field === 'frequency') {
+      setActiveModal('frequency')
+    }
+  }, [])
+
+  // Get dropdown options based on field
+  const getDropdownOptions = useCallback((field) => {
+    if (!dataManager) return []
+
+    switch (field) {
+      case 'client':
+      case 'allottedTo':
+      case 'teamLeader':
+        // All three use the same user list
+        return dataManager.data.users.map(user => user.name || user)
+      case 'task':
+        return dataManager.data.taskTemplates.map(template => template.name)
+      case 'subTask':
+        return dataManager.data.subtaskTemplates.map(template => template.name)
+      case 'priority':
+        return priorityOptions
+      case 'status':
+        return statusOptions
+      default:
+        return []
+    }
+  }, [dataManager, priorityOptions, statusOptions])
+
+  // Handle dropdown selection
+  const handleDropdownSelect = useCallback((value) => {
+    // Check if this is an "Add New" request for user fields
+    if (['client', 'allottedTo', 'teamLeader'].includes(currentCell.field) && value === 'ADD_NEW_USER') {
+      setActiveModal('addUser')
+      return
+    }
+
+    // Check if this is an "Add New" request for task/subtask fields
+    if (currentCell.field === 'task' && value === 'ADD_NEW_TASK') {
+      setActiveModal('addTask')
+      return
+    }
+
+    if (currentCell.field === 'subTask' && value === 'ADD_NEW_SUBTASK') {
+      setActiveModal('addSubTask')
+      return
+    }
+
+    // Normal selection
+    if (currentCell.taskId && currentCell.field) {
+      updateTask(currentCell.taskId, currentCell.field, value)
+    }
+    setActiveModal(null)
+    setCurrentCell({ taskId: null, field: null })
+  }, [currentCell, updateTask])
+
+  // Handle frequency selection
+  const handleFrequencySelect = useCallback((frequency) => {
+    if (currentCell.taskId) {
+      updateTask(currentCell.taskId, 'frequency', frequency)
+    }
+    setActiveModal(null)
+    setCurrentCell({ taskId: null, field: null })
+  }, [currentCell, updateTask])
+
+  // Filter and sort tasks
+  const filteredAndSortedTasks = useMemo(() => {
+    let filtered = [...tasks]
+
+    if (sortConfig.key) {
+      filtered.sort((a, b) => {
+        if (a[sortConfig.key] < b[sortConfig.key]) {
+          return sortConfig.direction === 'asc' ? -1 : 1
+        }
+        if (a[sortConfig.key] > b[sortConfig.key]) {
+          return sortConfig.direction === 'asc' ? 1 : -1
+        }
+        return 0
+      })
+    }
+
+    return filtered
+  }, [tasks, sortConfig])
+
+  // Handle sorting
+  const handleSort = useCallback((key) => {
+    setSortConfig(prev => ({
+      key,
+      direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc'
+    }))
+  }, [])
+
+  // Handle column refresh with animation
+  const handleColumnRefresh = useCallback(async (columnKey) => {
+    setRefreshingColumns(prev => new Set([...prev, columnKey]))
+
+    try {
+      if (dataManager?.refresh) {
+        if (['client', 'allottedTo', 'teamLeader'].includes(columnKey)) {
+          await dataManager.refresh('users')
+        } else if (columnKey === 'task') {
+          await dataManager.refresh('taskTemplates')
+        } else if (columnKey === 'subTask') {
+          await dataManager.refresh('subtaskTemplates')
+        }
+      }
+
+      // Simulate minimum loading time for better UX
+      setTimeout(() => {
+        setRefreshingColumns(prev => {
+          const newSet = new Set(prev)
+          newSet.delete(columnKey)
+          return newSet
+        })
+      }, 1000)
+    } catch (error) {
+      console.error('Error refreshing data:', error)
+      setRefreshingColumns(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(columnKey)
+        return newSet
+      })
+    }
+  }, [dataManager])
+
+  // Handle column delete - show list
+  const handleColumnDelete = useCallback((columnKey) => {
+    setDeleteListType(columnKey)
+    setShowDeleteList(true)
+  }, [])
+
+  // Get usage count for an item
+  const getUsageCount = useCallback((item, itemType) => {
+    if (!tasks || tasks.length === 0) return 0
+
+    const itemName = item.name || item
+    let count = 0
+
+    tasks.forEach(task => {
+      if (itemType === 'user') {
+        // Check if user is used in client, allottedTo, or teamLeader fields
+        if (task.client === itemName || task.allottedTo === itemName || task.teamLeader === itemName) {
+          count++
+        }
+      } else if (itemType === 'task template') {
+        if (task.task === itemName) {
+          count++
+        }
+      } else if (itemType === 'subtask template') {
+        if (task.subTask === itemName) {
+          count++
+        }
+      }
+    })
+
+    return count
+  }, [tasks])
+
+  // Handle individual item delete
+  const handleIndividualDelete = useCallback(async (item, itemType) => {
+    const itemName = item.name || item
+    const usageCount = getUsageCount(item, itemType)
+
+    // Check if item is in use
+    if (usageCount > 0) {
+      const confirmMessage = `"${itemName}" is currently used in ${usageCount} task${usageCount > 1 ? 's' : ''}.\n\nDeleting this ${itemType} will remove it from all tasks where it's used.\n\nAre you sure you want to continue?`
+      if (!window.confirm(confirmMessage)) {
+        return
+      }
+    } else {
+      if (!window.confirm(`Are you sure you want to delete "${itemName}"?`)) {
+        return
+      }
+    }
+
+    // Set loading state
+    setDeletingItems(prev => new Set([...prev, item.id]))
+
+    try {
+      if (itemType === 'user') {
+        await dataManager.userOperations.delete(item.id)
+      } else if (itemType === 'task template') {
+        await dataManager.taskTemplateOperations.delete(item.id)
+      } else if (itemType === 'subtask template') {
+        await dataManager.subtaskTemplateOperations.delete(item.id)
+      }
+
+      // Show success message
+      alert(`${itemName} has been deleted successfully!`)
+    } catch (error) {
+      console.error('Error deleting item:', error)
+      alert(`Failed to delete ${itemName}. Please try again.`)
+    } finally {
+      // Remove loading state
+      setDeletingItems(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(item.id)
+        return newSet
+      })
+    }
+  }, [dataManager, getUsageCount])
+
+  return (
+    <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+      {/* Action Bar */}
+      <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+        {/* Left side buttons */}
+        <div className="flex space-x-2">
+          <button
+            className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center space-x-2"
+            disabled={selectedRows.length === 0}
+            onClick={() => selectedRows.length > 0 && deleteSelectedTasks()}
+          >
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" clipRule="evenodd" />
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+            </svg>
+            <span>Delete Selected ({selectedRows.length})</span>
+          </button>
+
+          <button className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center space-x-2">
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+            <span>Export</span>
+          </button>
+        </div>
+
+        {/* Right side buttons */}
+        <div className="flex space-x-2">
+          <button className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-md text-sm font-medium">
+            Copy End Report
+          </button>
+
+          <button
+            onClick={addNewTask}
+            className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium"
+          >
+            Add Task
+          </button>
+
+          <button className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium">
+            End Day
+          </button>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="overflow-x-auto" ref={tableRef}>
+        <table className="w-full">
+          <thead className="bg-gray-800 text-white">
+            {/* First row: Action icons */}
+            <tr className="bg-gray-700">
+              <th className="px-3 py-2 w-12"></th>
+              <th className="px-3 py-2 w-12"></th>
+              {columns.map(column => (
+                <th
+                  key={`${column.key}-actions`}
+                  className="px-3 py-2 text-center"
+                  style={{ width: `${column.width}px`, minWidth: `${column.width}px`, maxWidth: `${column.width}px` }}
+                >
+                  {['client', 'task', 'subTask', 'allottedTo', 'teamLeader', 'status'].includes(column.key) && (
+                    <div className="flex justify-center space-x-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onColumnAction && onColumnAction('add', column.key)
+                        }}
+                        className="p-1 text-green-400 hover:text-green-200 hover:bg-green-600 rounded"
+                        title={`Add ${column.label}`}
+                      >
+                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleColumnRefresh(column.key)
+                        }}
+                        className="p-1 text-blue-400 hover:text-blue-200 hover:bg-blue-600 rounded"
+                        title={`Refresh ${column.label}`}
+                        disabled={refreshingColumns.has(column.key)}
+                      >
+                        <svg
+                          className={`w-3 h-3 ${refreshingColumns.has(column.key) ? 'animate-spin' : ''}`}
+                          fill="currentColor"
+                          viewBox="0 0 20 20"
+                        >
+                          <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleColumnDelete(column.key)
+                        }}
+                        className="p-1 text-red-400 hover:text-red-200 hover:bg-red-600 rounded"
+                        title={`Delete ${column.label}`}
+                      >
+                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" clipRule="evenodd" />
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </th>
+              ))}
+            </tr>
+
+            {/* Second row: Column names */}
+            <tr>
+              <th className="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider w-12">
+                <input
+                  type="checkbox"
+                  checked={selectedRows.length === tasks.length && tasks.length > 0}
+                  onChange={handleSelectAll}
+                  className="rounded border-gray-300"
+                />
+              </th>
+              <th className="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider w-12">ID</th>
+              {columns.map(column => (
+                <th
+                  key={column.key}
+                  className="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider cursor-pointer hover:bg-gray-700"
+                  style={{ width: `${column.width}px`, minWidth: `${column.width}px`, maxWidth: `${column.width}px` }}
+                  onClick={() => handleSort(column.key)}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="truncate">{column.label}</span>
+                    <svg className="w-3 h-3 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+
+          <tbody className="bg-white divide-y divide-gray-200">
+            {filteredAndSortedTasks.map((task, index) => (
+              <tr key={task.id} className={`hover:bg-gray-50 ${selectedRows.includes(task.id) ? 'bg-blue-50' : ''}`}>
+                <td className="px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedRows.includes(task.id)}
+                    onChange={() => handleRowSelect(task.id)}
+                    className="rounded border-gray-300"
+                  />
+                </td>
+                <td className="px-4 py-3 text-sm text-gray-900">{index + 1}</td>
+                {columns.map(column => (
+                  <td
+                    key={column.key}
+                    className="px-3 py-3"
+                    style={{ width: `${column.width}px`, minWidth: `${column.width}px`, maxWidth: `${column.width}px` }}
+                  >
+                    <div className="truncate">
+                      <EditableCell
+                        value={task[column.key]}
+                        type={column.type}
+                        onChange={(value) => updateTask(task.id, column.key, value)}
+                        onClick={(e) => handleCellClick(e, task.id, column.key)}
+                      />
+                    </div>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Modals */}
+      {activeModal === 'dropdown' && (
+        <DropdownModal
+          options={getDropdownOptions(currentCell.field)}
+          position={modalPosition}
+          onSelect={handleDropdownSelect}
+          onClose={() => setActiveModal(null)}
+          allowAddNew={['client', 'task', 'subTask', 'allottedTo', 'teamLeader'].includes(currentCell.field)}
+          fieldType={currentCell.field}
+        />
+      )}
+
+      {activeModal === 'frequency' && (
+        <FrequencyModal
+          position={modalPosition}
+          onSelect={handleFrequencySelect}
+          onClose={() => setActiveModal(null)}
+        />
+      )}
+
+      {/* Add User Modal */}
+      {activeModal === 'addUser' && dataManager && (
+        <AddUserModal
+          isOpen={true}
+          onClose={() => {
+            setActiveModal(null)
+            setCurrentCell({ taskId: null, field: null })
+          }}
+          onAdd={async (userData) => {
+            try {
+              await dataManager.userOperations.add(userData)
+              // If we have a current cell, update it with the new user's name
+              if (currentCell.taskId && currentCell.field) {
+                updateTask(currentCell.taskId, currentCell.field, userData.name)
+              }
+              setActiveModal(null)
+              setCurrentCell({ taskId: null, field: null })
+            } catch (error) {
+              console.error('Error adding user:', error)
+              alert('Failed to add user. Please try again.')
+            }
+          }}
+        />
+      )}
+
+      {/* Add Task Template Modal */}
+      {activeModal === 'addTask' && dataManager && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-96">
+            <h3 className="text-lg font-semibold mb-4">Add Task Template</h3>
+            <input
+              type="text"
+              placeholder="Enter task name"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md mb-4"
+              onKeyDown={async (e) => {
+                if (e.key === 'Enter' && e.target.value.trim()) {
+                  const taskName = e.target.value.trim()
+                  try {
+                    await dataManager.taskTemplateOperations.add({ name: taskName })
+                    // If we have a current cell, update it with the new task name
+                    if (currentCell.taskId && currentCell.field) {
+                      updateTask(currentCell.taskId, currentCell.field, taskName)
+                    }
+                    setActiveModal(null)
+                    setCurrentCell({ taskId: null, field: null })
+                  } catch (error) {
+                    console.error('Error adding task template:', error)
+                    alert('Failed to add task template. Please try again.')
+                  }
+                }
+              }}
+              autoFocus
+            />
+            <div className="flex justify-end space-x-2">
+              <button
+                onClick={() => {
+                  setActiveModal(null)
+                  setCurrentCell({ taskId: null, field: null })
+                }}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add SubTask Template Modal */}
+      {activeModal === 'addSubTask' && dataManager && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-96">
+            <h3 className="text-lg font-semibold mb-4">Add SubTask Template</h3>
+            <input
+              type="text"
+              placeholder="Enter subtask name"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md mb-4"
+              onKeyDown={async (e) => {
+                if (e.key === 'Enter' && e.target.value.trim()) {
+                  const subtaskName = e.target.value.trim()
+                  try {
+                    await dataManager.subtaskTemplateOperations.add({ name: subtaskName })
+                    // If we have a current cell, update it with the new subtask name
+                    if (currentCell.taskId && currentCell.field) {
+                      updateTask(currentCell.taskId, currentCell.field, subtaskName)
+                    }
+                    setActiveModal(null)
+                    setCurrentCell({ taskId: null, field: null })
+                  } catch (error) {
+                    console.error('Error adding subtask template:', error)
+                    alert('Failed to add subtask template. Please try again.')
+                  }
+                }
+              }}
+              autoFocus
+            />
+            <div className="flex justify-end space-x-2">
+              <button
+                onClick={() => {
+                  setActiveModal(null)
+                  setCurrentCell({ taskId: null, field: null })
+                }}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Client Modal */}
+      {activeModal === 'addClient' && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-96">
+            <h3 className="text-lg font-semibold mb-4">Add Client</h3>
+            <p className="text-gray-600 mb-4">Client management coming soon...</p>
+            <div className="flex justify-end space-x-2">
+              <button
+                onClick={() => setActiveModal(null)}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete List Modal */}
+      {showDeleteList && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-[800px] max-h-[80vh] overflow-hidden">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">
+                Delete {deleteListType === 'client' ? 'Users' :
+                       deleteListType === 'task' ? 'Task Templates' :
+                       deleteListType === 'subTask' ? 'SubTask Templates' :
+                       deleteListType === 'allottedTo' ? 'Users' :
+                       deleteListType === 'teamLeader' ? 'Users' : 'Items'}
+              </h3>
+              <button
+                onClick={() => setShowDeleteList(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Bulk Actions */}
+            {/* <div className="flex space-x-2 mb-4 p-3 bg-gray-50 rounded-lg">
+              <button className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 flex items-center space-x-2">
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" clipRule="evenodd" />
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                </svg>
+                <span>Delete Selected</span>
+              </button>
+              <button className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 flex items-center space-x-2">
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+                <span>Export CSV</span>
+              </button>
+              <button className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center space-x-2">
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M8 2a1 1 0 000 2h2a1 1 0 100-2H8z" />
+                  <path d="M3 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v6h-4.586l1.293-1.293a1 1 0 10-1.414-1.414l-3 3a1 1 0 000 1.414l3 3a1 1 0 001.414-1.414L10.414 13H15v3a2 2 0 01-2 2H5a2 2 0 01-2-2V5zM15 11h2V5a2 2 0 00-2-2v8z" />
+                </svg>
+                <span>Copy Report</span>
+              </button>
+              <button
+                onClick={addNewTask}
+                className="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 flex items-center space-x-2"
+              >
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                </svg>
+                <span>Add Task</span>
+              </button>
+              <button className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 flex items-center space-x-2">
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                </svg>
+                <span>End Day</span>
+              </button>
+            </div> */}
+
+            {/* Items List */}
+            <div className="max-h-[400px] overflow-y-auto border rounded-lg">
+              {(() => {
+                let items = []
+                let itemType = ''
+
+                if (['client', 'allottedTo', 'teamLeader'].includes(deleteListType)) {
+                  items = dataManager?.data.users || []
+                  itemType = 'user'
+                } else if (deleteListType === 'task') {
+                  items = dataManager?.data.taskTemplates || []
+                  itemType = 'task template'
+                } else if (deleteListType === 'subTask') {
+                  items = dataManager?.data.subtaskTemplates || []
+                  itemType = 'subtask template'
+                }
+
+                if (items.length === 0) {
+                  return (
+                    <div className="p-8 text-center text-gray-500">
+                      <svg className="w-12 h-12 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-4m-12 0H4m8 0V9m0 4v6m0-6h4m-4 0H8" />
+                      </svg>
+                      <p className="text-lg font-medium">No {itemType}s found</p>
+                      <p className="text-sm mt-1">There are no {itemType}s to delete</p>
+                    </div>
+                  )
+                }
+
+                return (
+                  <div className="divide-y divide-gray-200">
+                    {items.map((item, index) => (
+                      <div key={item.id || index} className="p-4 flex items-center justify-between hover:bg-gray-50">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-3">
+                            <div className="flex-shrink-0">
+                              <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                                <span className="text-sm font-medium text-blue-600">
+                                  {(item.name || item).charAt(0).toUpperCase()}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 truncate">
+                                {item.name || item}
+                              </p>
+                              {item.email && (
+                                <p className="text-sm text-gray-500 truncate">
+                                  {item.email}
+                                </p>
+                              )}
+                              {item.phone && (
+                                <p className="text-sm text-gray-500">
+                                  {item.phone}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-2">
+                          {(() => {
+                            const usageCount = getUsageCount(item, itemType)
+                            return (
+                              <span className={`text-xs px-2 py-1 rounded ${
+                                usageCount > 0
+                                  ? 'text-orange-700 bg-orange-100'
+                                  : 'text-gray-500 bg-gray-100'
+                              }`}>
+                                {usageCount > 0 ? `Used in ${usageCount} task${usageCount > 1 ? 's' : ''}` : 'Not used'}
+                              </span>
+                            )
+                          })()}
+                          <button
+                            onClick={() => handleIndividualDelete(item, itemType)}
+                            disabled={deletingItems.has(item.id)}
+                            className={`p-2 rounded-full transition-colors ${
+                              deletingItems.has(item.id)
+                                ? 'text-gray-400 bg-gray-100 cursor-not-allowed'
+                                : 'text-red-600 hover:text-red-800 hover:bg-red-100'
+                            }`}
+                            title={deletingItems.has(item.id) ? "Deleting..." : "Delete this item"}
+                          >
+                            {deletingItems.has(item.id) ? (
+                              <svg className="w-4 h-4 animate-spin" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                              </svg>
+                            ) : (
+                              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" clipRule="evenodd" />
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                              </svg>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default TaskTable
