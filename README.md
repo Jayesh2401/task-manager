@@ -28,6 +28,13 @@ A comprehensive Excel-like task management web application built with React, Tai
 - `Tab/Enter`: Navigate between cells
 - `Escape`: Cancel editing
 
+### 🔐 Authentication & Security
+- **User Registration**: Sign up with email and password
+- **Email Verification**: Secure email verification process
+- **Password Reset**: Forgot password with email reset link
+- **Session Management**: Secure user sessions with Firebase Auth
+- **Protected Routes**: Access control for authenticated users only
+
 ### 🔄 Real-time Features
 - Live data synchronization with Firebase
 - Instant updates across multiple users
@@ -61,6 +68,7 @@ A comprehensive Excel-like task management web application built with React, Tai
 3. **Configure Firebase**
    - Create a new Firebase project at [Firebase Console](https://console.firebase.google.com/)
    - Enable Firestore Database
+   - Enable Authentication with Email/Password provider
    - Copy your Firebase configuration
    - Update `src/services/firebase.js` with your config:
 
@@ -88,16 +96,27 @@ A comprehensive Excel-like task management web application built with React, Tai
 ```
 src/
 ├── components/
+│   ├── auth/                  # Authentication components
+│   │   ├── AuthContainer.jsx  # Main auth container
+│   │   ├── LoginForm.jsx      # Login form
+│   │   ├── SignupForm.jsx     # Registration form
+│   │   ├── ForgotPasswordForm.jsx # Password reset form
+│   │   └── EmailVerificationBanner.jsx # Email verification banner
 │   ├── Dashboard.jsx          # Analytics dashboard
 │   ├── TaskTable.jsx          # Main table component
 │   ├── EditableCell.jsx       # Editable cell component
 │   └── modals/
 │       ├── DropdownModal.jsx  # Dropdown selection modal
-│       └── FrequencyModal.jsx # Frequency selection modal
+│       ├── FrequencyModal.jsx # Frequency selection modal
+│       └── AddUserModal.jsx   # Add user modal
 ├── hooks/
+│   ├── useAuth.js             # Authentication hook
+│   ├── useDataManager.js      # Data management hook
 │   ├── useKeyboardShortcuts.js # Keyboard shortcuts hook
 │   └── useFirebase.js         # Firebase operations hook
 ├── services/
+│   ├── authService.js         # Authentication service
+│   ├── taskService.js         # Task and data services
 │   └── firebase.js           # Firebase configuration
 └── styles/
     └── index.css             # Global styles with TailwindCSS
@@ -113,6 +132,13 @@ src/
 - **Build Tool**: Vite
 
 ## 📋 Usage Guide
+
+### Authentication
+1. **Sign Up**: Create a new account with email and password
+2. **Email Verification**: Check your email and click the verification link
+3. **Sign In**: Use your credentials to access the application
+4. **Forgot Password**: Use the "Forgot Password" link to reset your password
+5. **Sign Out**: Click the "Sign Out" button in the header
 
 ### Adding Tasks
 1. Click the "Add Task" button or press `Ctrl + N`
@@ -137,10 +163,17 @@ src/
 ## 🔧 Configuration
 
 ### Firebase Setup
-1. Create collections in Firestore:
+1. Enable Authentication:
+   - Go to Firebase Console > Authentication > Sign-in method
+   - Enable Email/Password provider
+
+2. Create collections in Firestore:
    - `tasks` - for task data
    - `clients` - for client information
-   - `users` - for user management
+   - `users` - for user management (task assignments)
+   - `authUsers` - for authenticated user profiles
+   - `taskTemplates` - for reusable task templates
+   - `subtaskTemplates` - for reusable subtask templates
 
 ### Customization
 - Modify `tailwind.config.js` for custom styling

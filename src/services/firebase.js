@@ -1,7 +1,6 @@
-/* eslint-disable no-unused-vars */
 import { initializeApp } from 'firebase/app'
-import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore'
-import { getAuth, connectAuthEmulator } from 'firebase/auth'
+import { getFirestore } from 'firebase/firestore'
+import { getAuth } from 'firebase/auth'
 
 // Firebase configuration
 // TODO: Replace with your actual Firebase config
@@ -22,15 +21,15 @@ const app = initializeApp(firebaseConfig)
 export const db = getFirestore(app)
 export const auth = getAuth(app)
 
-// Connect to emulators in development
-if (import.meta.env.DEV) {
-  try {
-    connectFirestoreEmulator(db, 'localhost', 8080)
-    connectAuthEmulator(auth, 'http://localhost:9099')
-  } catch (error) {
-    console.log('Emulators already connected or not available')
-  }
-}
+// Connect to emulators in development (DISABLED - using production Firebase)
+// if (import.meta.env.DEV) {
+//   try {
+//     connectFirestoreEmulator(db, 'localhost', 8080)
+//     connectAuthEmulator(auth, 'http://localhost:9099')
+//   } catch (error) {
+//     console.log('Emulators already connected or not available')
+//   }
+// }
 
 // Collection names
 export const COLLECTIONS = {
@@ -39,7 +38,8 @@ export const COLLECTIONS = {
   USERS: 'users',
   PROJECTS: 'projects',
   TASK_TEMPLATES: 'taskTemplates',
-  SUBTASK_TEMPLATES: 'subtaskTemplates'
+  SUBTASK_TEMPLATES: 'subtaskTemplates',
+  AUTH_USERS: 'authUsers' // For authenticated user profiles
 }
 
 export default app

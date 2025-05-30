@@ -4,6 +4,7 @@ import {
   updateDoc,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   query,
@@ -16,8 +17,14 @@ import { db, COLLECTIONS } from './firebase'
 
 // Task Service
 export class TaskService {
-  // Get all tasks with real-time updates
-  static subscribeToTasks(callback) {
+  // Get tasks for specific user with real-time updates
+  static subscribeToTasks(callback, currentUserEmail) {
+    if (!currentUserEmail) {
+      callback([])
+      return () => {}
+    }
+
+    // Query for tasks where user is creator, allottedTo, or teamLeader
     const q = query(
       collection(db, COLLECTIONS.TASKS),
       orderBy('createdAt', 'desc')
@@ -26,23 +33,75 @@ export class TaskService {
     return onSnapshot(q, (querySnapshot) => {
       const tasks = []
       querySnapshot.forEach((doc) => {
-        tasks.push({
-          id: doc.id,
-          ...doc.data(),
-          createdAt: doc.data().createdAt?.toDate(),
-          updatedAt: doc.data().updatedAt?.toDate(),
-          dueDate: doc.data().dueDate || null
-        })
+        const taskData = doc.data()
+        const userEmail = currentUserEmail.toLowerCase()
+
+        // Check if user has access to this task
+        const hasAccess =
+          taskData.createdBy === userEmail ||
+          (taskData.sharedWith && taskData.sharedWith.includes(userEmail))
+
+        if (hasAccess) {
+          tasks.push({
+            id: doc.id,
+            ...taskData,
+            createdAt: taskData.createdAt?.toDate(),
+            updatedAt: taskData.updatedAt?.toDate(),
+            dueDate: taskData.dueDate || null
+          })
+        }
       })
       callback(tasks)
     })
   }
 
-  // Add new task
-  static async addTask(taskData) {
+  // Helper function to get user email by name
+  static async getUserEmailByName(userName) {
+    if (!userName) return null
     try {
+      const q = query(
+        collection(db, COLLECTIONS.USERS),
+        where('name', '==', userName)
+      )
+      const querySnapshot = await getDocs(q)
+      if (!querySnapshot.empty) {
+        return querySnapshot.docs[0].data().email
+      }
+      return null
+    } catch (error) {
+      console.error('Error getting user email:', error)
+      return null
+    }
+  }
+
+  // Add new task
+  static async addTask(taskData, currentUserEmail) {
+    try {
+      // Build shared users list
+      const sharedWith = [currentUserEmail.toLowerCase()]
+
+      // Get emails for allottedTo and teamLeader users
+      const allottedToEmail = await this.getUserEmailByName(taskData.allottedTo)
+      const teamLeaderEmail = await this.getUserEmailByName(taskData.teamLeader)
+
+      // Add allottedTo user email if different from creator
+      if (allottedToEmail && allottedToEmail !== currentUserEmail) {
+        sharedWith.push(allottedToEmail.toLowerCase())
+      }
+
+      // Add teamLeader user email if different from creator and allottedTo
+      if (teamLeaderEmail &&
+          teamLeaderEmail !== currentUserEmail &&
+          !sharedWith.includes(teamLeaderEmail.toLowerCase())) {
+        sharedWith.push(teamLeaderEmail.toLowerCase())
+      }
+
       const docRef = await addDoc(collection(db, COLLECTIONS.TASKS), {
         ...taskData,
+        createdBy: currentUserEmail.toLowerCase(),
+        sharedWith: sharedWith,
+        allottedToEmail: allottedToEmail,
+        teamLeaderEmail: teamLeaderEmail,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       })
@@ -54,9 +113,42 @@ export class TaskService {
   }
 
   // Update task
-  static async updateTask(taskId, updates) {
+  static async updateTask(taskId, updates, currentUserEmail) {
     try {
       const taskRef = doc(db, COLLECTIONS.TASKS, taskId)
+
+      // If allottedTo or teamLeader is being updated, update sharedWith and email mappings
+      if (updates.allottedTo !== undefined || updates.teamLeader !== undefined) {
+        // Get current task data to rebuild sharedWith
+        const taskDoc = await getDoc(taskRef)
+        if (taskDoc.exists()) {
+          const currentData = taskDoc.data()
+          const sharedWith = [currentData.createdBy || currentUserEmail.toLowerCase()]
+
+          // Get emails for new assignments
+          const newAllottedToEmail = updates.allottedTo ?
+            await this.getUserEmailByName(updates.allottedTo) :
+            currentData.allottedToEmail
+          const newTeamLeaderEmail = updates.teamLeader ?
+            await this.getUserEmailByName(updates.teamLeader) :
+            currentData.teamLeaderEmail
+
+          // Add new allottedTo user
+          if (newAllottedToEmail && !sharedWith.includes(newAllottedToEmail.toLowerCase())) {
+            sharedWith.push(newAllottedToEmail.toLowerCase())
+          }
+
+          // Add new teamLeader user
+          if (newTeamLeaderEmail && !sharedWith.includes(newTeamLeaderEmail.toLowerCase())) {
+            sharedWith.push(newTeamLeaderEmail.toLowerCase())
+          }
+
+          updates.sharedWith = sharedWith
+          updates.allottedToEmail = newAllottedToEmail
+          updates.teamLeaderEmail = newTeamLeaderEmail
+        }
+      }
+
       await updateDoc(taskRef, {
         ...updates,
         updatedAt: serverTimestamp()
@@ -135,11 +227,16 @@ export class TaskService {
 
 // Client Service
 export class ClientService {
-  // Get all clients
-  static subscribeToClients(callback) {
+  // Get clients for specific user
+  static subscribeToClients(callback, currentUserEmail) {
+    if (!currentUserEmail) {
+      callback([])
+      return () => {}
+    }
+
     const q = query(
       collection(db, COLLECTIONS.CLIENTS),
-      orderBy('name', 'asc')
+      where('createdBy', '==', currentUserEmail.toLowerCase())
     )
 
     return onSnapshot(q, (querySnapshot) => {
@@ -152,15 +249,50 @@ export class ClientService {
           updatedAt: doc.data().updatedAt?.toDate()
         })
       })
+      // Sort clients by name on the client side
+      clients.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+      console.log('Clients updated for user:', currentUserEmail, 'Count:', clients.length, 'Clients:', clients.map(c => c.name))
       callback(clients)
     })
   }
 
-  // Add new client
-  static async addClient(clientData) {
+  // Add new client with validation
+  static async addClient(clientData, currentUserEmail) {
     try {
+      // Validate email format if provided
+      if (clientData.email) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+        if (!emailRegex.test(clientData.email)) {
+          throw new Error('Invalid email format')
+        }
+      }
+
+      // Validate phone number if provided (10 digits)
+      if (clientData.phone) {
+        const phoneRegex = /^\d{10}$/
+        if (!phoneRegex.test(clientData.phone)) {
+          throw new Error('Phone number must be exactly 10 digits')
+        }
+      }
+
+      // Check if email already exists for this user (if email is provided)
+      if (clientData.email) {
+        const emailQuery = query(
+          collection(db, COLLECTIONS.CLIENTS),
+          where('email', '==', clientData.email.toLowerCase()),
+          where('createdBy', '==', currentUserEmail.toLowerCase())
+        )
+        const emailSnapshot = await getDocs(emailQuery)
+        if (!emailSnapshot.empty) {
+          throw new Error('Client with this email already exists in your account')
+        }
+      }
+
       const docRef = await addDoc(collection(db, COLLECTIONS.CLIENTS), {
-        ...clientData,
+        name: clientData.name.trim(),
+        email: clientData.email ? clientData.email.toLowerCase().trim() : '',
+        phone: clientData.phone ? clientData.phone.trim() : '',
+        createdBy: currentUserEmail.toLowerCase(),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       })
@@ -174,6 +306,21 @@ export class ClientService {
   // Update client
   static async updateClient(clientId, updates) {
     try {
+      if (updates.email) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+        if (!emailRegex.test(updates.email)) {
+          throw new Error('Invalid email format')
+        }
+        updates.email = updates.email.toLowerCase().trim()
+      }
+
+      if (updates.phone) {
+        const phoneRegex = /^\d{10}$/
+        if (!phoneRegex.test(updates.phone)) {
+          throw new Error('Phone number must be exactly 10 digits')
+        }
+      }
+
       const clientRef = doc(db, COLLECTIONS.CLIENTS, clientId)
       await updateDoc(clientRef, {
         ...updates,
@@ -184,15 +331,40 @@ export class ClientService {
       throw error
     }
   }
+
+  // Delete client
+  static async deleteClient(clientId) {
+    try {
+      await deleteDoc(doc(db, COLLECTIONS.CLIENTS, clientId))
+    } catch (error) {
+      console.error('Error deleting client:', error)
+      throw error
+    }
+  }
+
+  // Search clients by name or email
+  static searchClients(clients, searchTerm) {
+    if (!searchTerm) return clients
+    const term = searchTerm.toLowerCase()
+    return clients.filter(client =>
+      client.name.toLowerCase().includes(term) ||
+      (client.email && client.email.toLowerCase().includes(term))
+    )
+  }
 }
 
 // User Service
 export class UserService {
-  // Get all users
-  static subscribeToUsers(callback) {
+  // Get users for specific user (user-specific team members)
+  static subscribeToUsers(callback, currentUserEmail) {
+    if (!currentUserEmail) {
+      callback([])
+      return () => {}
+    }
+
     const q = query(
       collection(db, COLLECTIONS.USERS),
-      orderBy('name', 'asc')
+      where('createdBy', '==', currentUserEmail.toLowerCase())
     )
 
     return onSnapshot(q, (querySnapshot) => {
@@ -205,12 +377,15 @@ export class UserService {
           updatedAt: doc.data().updatedAt?.toDate()
         })
       })
+      // Sort users by name on the client side
+      users.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+      console.log('Users updated for user:', currentUserEmail, 'Count:', users.length, 'Users:', users.map(u => u.name))
       callback(users)
     })
   }
 
   // Add new user with validation
-  static async addUser(userData) {
+  static async addUser(userData, currentUserEmail) {
     try {
       // Validate email format
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -224,20 +399,22 @@ export class UserService {
         throw new Error('Phone number must be exactly 10 digits')
       }
 
-      // Check if email already exists
+      // Check if email already exists for this user
       const emailQuery = query(
         collection(db, COLLECTIONS.USERS),
-        where('email', '==', userData.email)
+        where('email', '==', userData.email.toLowerCase()),
+        where('createdBy', '==', currentUserEmail.toLowerCase())
       )
       const emailSnapshot = await getDocs(emailQuery)
       if (!emailSnapshot.empty) {
-        throw new Error('User with this email already exists')
+        throw new Error('User with this email already exists in your team')
       }
 
       const docRef = await addDoc(collection(db, COLLECTIONS.USERS), {
         name: userData.name.trim(),
         email: userData.email.toLowerCase().trim(),
         phone: userData.phone.trim(),
+        createdBy: currentUserEmail.toLowerCase(),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       })
@@ -300,11 +477,16 @@ export class UserService {
 
 // Task Template Service
 export class TaskTemplateService {
-  // Get all task templates
-  static subscribeToTaskTemplates(callback) {
+  // Get task templates for specific user
+  static subscribeToTaskTemplates(callback, currentUserEmail) {
+    if (!currentUserEmail) {
+      callback([])
+      return () => {}
+    }
+
     const q = query(
       collection(db, COLLECTIONS.TASK_TEMPLATES),
-      orderBy('name', 'asc')
+      where('createdBy', '==', currentUserEmail.toLowerCase())
     )
 
     return onSnapshot(q, (querySnapshot) => {
@@ -317,15 +499,18 @@ export class TaskTemplateService {
           updatedAt: doc.data().updatedAt?.toDate()
         })
       })
+      // Sort templates by name on the client side
+      templates.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
       callback(templates)
     })
   }
 
   // Add new task template
-  static async addTaskTemplate(templateData) {
+  static async addTaskTemplate(templateData, currentUserEmail) {
     try {
       const docRef = await addDoc(collection(db, COLLECTIONS.TASK_TEMPLATES), {
         name: templateData.name.trim(),
+        createdBy: currentUserEmail.toLowerCase(),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       })
@@ -358,11 +543,16 @@ export class TaskTemplateService {
 
 // SubTask Template Service
 export class SubTaskTemplateService {
-  // Get all subtask templates
-  static subscribeToSubTaskTemplates(callback) {
+  // Get subtask templates for specific user
+  static subscribeToSubTaskTemplates(callback, currentUserEmail) {
+    if (!currentUserEmail) {
+      callback([])
+      return () => {}
+    }
+
     const q = query(
       collection(db, COLLECTIONS.SUBTASK_TEMPLATES),
-      orderBy('name', 'asc')
+      where('createdBy', '==', currentUserEmail.toLowerCase())
     )
 
     return onSnapshot(q, (querySnapshot) => {
@@ -375,15 +565,18 @@ export class SubTaskTemplateService {
           updatedAt: doc.data().updatedAt?.toDate()
         })
       })
+      // Sort templates by name on the client side
+      templates.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
       callback(templates)
     })
   }
 
   // Add new subtask template
-  static async addSubTaskTemplate(templateData) {
+  static async addSubTaskTemplate(templateData, currentUserEmail) {
     try {
       const docRef = await addDoc(collection(db, COLLECTIONS.SUBTASK_TEMPLATES), {
         name: templateData.name.trim(),
+        createdBy: currentUserEmail.toLowerCase(),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       })

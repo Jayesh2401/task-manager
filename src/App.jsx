@@ -1,15 +1,22 @@
 import { useState, useEffect, useCallback } from 'react'
 import Dashboard from './components/Dashboard'
 import TaskTable from './components/TaskTable'
+import ClientDashboard from './components/ClientDashboard'
+import UserDashboard from './components/UserDashboard'
 import AddUserModal from './components/modals/AddUserModal'
+import AddClientModal from './components/modals/AddClientModal'
+import AuthContainer from './components/auth/AuthContainer'
+
 import useKeyboardShortcuts from './hooks/useKeyboardShortcuts'
 import { useDataManager } from './hooks/useDataManager'
+import { useAuth } from './hooks/useAuth'
 import './App.css'
 
 function App() {
   const [selectedRows, setSelectedRows] = useState([])
   const [activeModal, setActiveModal] = useState(null)
-  const dataManager = useDataManager()
+  const { user, loading: authLoading, signOut } = useAuth()
+  const dataManager = useDataManager(user)
 
   const addNewTask = useCallback(async () => {
     try {
@@ -79,8 +86,10 @@ function App() {
   // Handle column actions from the fixed action row
   const handleColumnAction = useCallback((action, columnKey) => {
     if (action === 'add') {
-      // For client, allottedTo, teamLeader - all use same user modal
-      if (['client', 'allottedTo', 'teamLeader'].includes(columnKey)) {
+      // Client uses simple modal (no password), allottedTo/teamLeader use user modal (with password)
+      if (columnKey === 'client') {
+        setActiveModal('addClientSimple')
+      } else if (['allottedTo', 'teamLeader'].includes(columnKey)) {
         setActiveModal('addUser')
       } else if (columnKey === 'task') {
         setActiveModal('addTask')
@@ -115,6 +124,23 @@ function App() {
     'ctrl+s': () => saveTasks(),
   })
 
+  // Show auth loading screen
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show auth container if user is not authenticated
+  if (!user) {
+    return <AuthContainer />
+  }
+
   if (dataManager.isLoading) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
@@ -139,6 +165,40 @@ function App() {
     )
   }
 
+  // Route to different dashboards based on user type
+  if (user?.userType === 'client') {
+    return (
+      <>
+        <ClientDashboard
+          clients={dataManager.data.clients}
+          user={user}
+          onSignOut={signOut}
+          onAddClient={async (clientData) => {
+            try {
+              // For clients, just add to client collection without password/auth
+              await dataManager.clientOperations.add(clientData)
+            } catch (error) {
+              console.error('Error adding client:', error)
+              throw error
+            }
+          }}
+        />
+      </>
+    )
+  }
+
+  if (user?.userType === 'user') {
+    return (
+      <UserDashboard
+        tasks={dataManager.data.tasks}
+        users={dataManager.data.users}
+        user={user}
+        onSignOut={signOut}
+      />
+    )
+  }
+
+  // Default admin dashboard
   return (
     <div className="min-h-screen bg-gray-100 app-container">
       {/* Header */}
@@ -146,13 +206,23 @@ function App() {
         <div className="w-full px-5 py-3">
           <div className="flex justify-between items-center">
             <div className="flex items-center space-x-4">
-              <h1 className="text-xl font-semibold text-gray-900">Jayesh</h1>
-              <span className="text-sm text-gray-500">Jayesh2401@gmail.com</span>
+              <h1 className="text-xl font-semibold text-gray-900">{user?.displayName || 'Admin'}</h1>
+              <span className="text-sm text-gray-500">{user?.email}</span>
+              <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded-full">
+                Administrator
+              </span>
             </div>
             <div className="flex items-center space-x-4">
               <button className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center space-x-2 transition-colors">
                 <span className="w-2 h-2 bg-white rounded-full"></span>
                 <span>30 Days</span>
+              </button>
+              <button
+                onClick={signOut}
+                className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                title="Sign Out"
+              >
+                Sign Out
               </button>
               <button className="p-2 text-gray-600 hover:text-gray-800 rounded-md hover:bg-gray-100 transition-colors">
                 <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -197,6 +267,126 @@ function App() {
             }
           }}
         />
+      )}
+
+      {/* Add Client Modal */}
+      {activeModal === 'addClient' && (
+        <AddClientModal
+          isOpen={true}
+          onClose={() => setActiveModal(null)}
+          onAdd={async (clientData) => {
+            try {
+              await dataManager.clientOperations.add(clientData)
+              setActiveModal(null)
+            } catch (error) {
+              console.error('Error adding client:', error)
+              alert('Failed to add client. Please try again.')
+            }
+          }}
+        />
+      )}
+
+      {/* Add Client Simple Modal (for TaskTable column plus icon) */}
+      {activeModal === 'addClientSimple' && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-96">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                <svg className="w-5 h-5 text-blue-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                </svg>
+                Add Client
+              </h3>
+              <button
+                onClick={() => setActiveModal(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={(e) => {
+              e.preventDefault()
+              const formData = new FormData(e.target)
+              const clientData = {
+                name: formData.get('name'),
+                email: formData.get('email'),
+                phone: formData.get('phone')
+              }
+
+              if (!clientData.name || !clientData.email) {
+                alert('Please fill in all required fields')
+                return
+              }
+
+              dataManager.clientOperations.add(clientData)
+                .then(() => setActiveModal(null))
+                .catch(error => {
+                  console.error('Error adding client:', error)
+                  alert('Failed to add client. Please try again.')
+                })
+            }}>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Client Name *
+                  </label>
+                  <input
+                    type="text"
+                    name="name"
+                    placeholder="Enter client name"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Email Address *
+                  </label>
+                  <input
+                    type="email"
+                    name="email"
+                    placeholder="Enter email address"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Phone Number
+                  </label>
+                  <input
+                    type="tel"
+                    name="phone"
+                    placeholder="Enter phone number"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-3 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setActiveModal(null)}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800 font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md font-medium transition-colors"
+                >
+                  Add Client
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* Add Task Template Modal */}

@@ -1,14 +1,15 @@
 import { useState, useEffect, useCallback } from 'react'
-import { 
-  TaskService, 
-  ClientService, 
-  UserService, 
-  TaskTemplateService, 
-  SubTaskTemplateService 
+import {
+  TaskService,
+  ClientService,
+  UserService,
+  TaskTemplateService,
+  SubTaskTemplateService
 } from '../services/taskService'
+import { AuthService } from '../services/authService'
 
 // Central data management hook to minimize database calls
-export const useDataManager = () => {
+export const useDataManager = (currentUser) => {
   // State for all data
   const [data, setData] = useState({
     tasks: [],
@@ -37,35 +38,47 @@ export const useDataManager = () => {
       try {
         const newUnsubscribers = {}
 
-        // Subscribe to tasks
+        // Only initialize if user is available
+        if (!currentUser?.email) {
+          setLoading({
+            tasks: false,
+            clients: false,
+            users: false,
+            taskTemplates: false,
+            subtaskTemplates: false
+          })
+          return
+        }
+
+        // Subscribe to tasks (user-specific)
         newUnsubscribers.tasks = TaskService.subscribeToTasks((tasksData) => {
           setData(prev => ({ ...prev, tasks: tasksData }))
           setLoading(prev => ({ ...prev, tasks: false }))
-        })
+        }, currentUser.email)
 
-        // Subscribe to clients
+        // Subscribe to clients (user-specific)
         newUnsubscribers.clients = ClientService.subscribeToClients((clientsData) => {
           setData(prev => ({ ...prev, clients: clientsData }))
           setLoading(prev => ({ ...prev, clients: false }))
-        })
+        }, currentUser.email)
 
-        // Subscribe to users
+        // Subscribe to users (user-specific team members)
         newUnsubscribers.users = UserService.subscribeToUsers((usersData) => {
           setData(prev => ({ ...prev, users: usersData }))
           setLoading(prev => ({ ...prev, users: false }))
-        })
+        }, currentUser.email)
 
-        // Subscribe to task templates
+        // Subscribe to task templates (user-specific)
         newUnsubscribers.taskTemplates = TaskTemplateService.subscribeToTaskTemplates((templatesData) => {
           setData(prev => ({ ...prev, taskTemplates: templatesData }))
           setLoading(prev => ({ ...prev, taskTemplates: false }))
-        })
+        }, currentUser.email)
 
-        // Subscribe to subtask templates
+        // Subscribe to subtask templates (user-specific)
         newUnsubscribers.subtaskTemplates = SubTaskTemplateService.subscribeToSubTaskTemplates((templatesData) => {
           setData(prev => ({ ...prev, subtaskTemplates: templatesData }))
           setLoading(prev => ({ ...prev, subtaskTemplates: false }))
-        })
+        }, currentUser.email)
 
         setUnsubscribers(newUnsubscribers)
 
@@ -90,17 +103,17 @@ export const useDataManager = () => {
         if (unsubscribe) unsubscribe()
       })
     }
-  }, [])
+  }, [currentUser?.email])
 
   // Task operations
   const taskOperations = {
     add: useCallback(async (taskData) => {
-      return await TaskService.addTask(taskData)
-    }, []),
+      return await TaskService.addTask(taskData, currentUser?.email)
+    }, [currentUser?.email]),
 
     update: useCallback(async (taskId, updates) => {
-      return await TaskService.updateTask(taskId, updates)
-    }, []),
+      return await TaskService.updateTask(taskId, updates, currentUser?.email)
+    }, [currentUser?.email]),
 
     delete: useCallback(async (taskId) => {
       return await TaskService.deleteTask(taskId)
@@ -114,8 +127,26 @@ export const useDataManager = () => {
   // User operations
   const userOperations = {
     add: useCallback(async (userData) => {
-      return await UserService.addUser(userData)
-    }, []),
+      // If password is provided, store credentials for later account creation
+      if (userData.password) {
+        // Store user credentials first
+        const authResult = await AuthService.createUserCredentials(userData)
+        if (!authResult.success) {
+          throw new Error(authResult.error)
+        }
+
+        // Then add to users collection for task management
+        const userForTasks = {
+          name: userData.name,
+          email: userData.email,
+          phone: userData.phone
+        }
+        return await UserService.addUser(userForTasks, currentUser?.email)
+      } else {
+        // Just add to users collection (for task management only)
+        return await UserService.addUser(userData, currentUser?.email)
+      }
+    }, [currentUser?.email]),
 
     update: useCallback(async (userId, updates) => {
       return await UserService.updateUser(userId, updates)
@@ -133,8 +164,25 @@ export const useDataManager = () => {
   // Client operations
   const clientOperations = {
     add: useCallback(async (clientData) => {
-      return await ClientService.addClient(clientData)
-    }, []),
+      // If password is provided, store credentials for later account creation
+      if (clientData.password) {
+        // Store client credentials first (separate from users)
+        const authResult = await AuthService.createClientCredentials(clientData)
+        if (!authResult.success) {
+          throw new Error(authResult.error)
+        }
+
+        // Then add to clients collection
+        const clientForTasks = {
+          name: clientData.name,
+          email: clientData.email
+        }
+        return await ClientService.addClient(clientForTasks, currentUser?.email)
+      } else {
+        // Just add to clients collection
+        return await ClientService.addClient(clientData, currentUser?.email)
+      }
+    }, [currentUser?.email]),
 
     update: useCallback(async (clientId, updates) => {
       return await ClientService.updateClient(clientId, updates)
@@ -144,8 +192,8 @@ export const useDataManager = () => {
   // Task template operations
   const taskTemplateOperations = {
     add: useCallback(async (templateData) => {
-      return await TaskTemplateService.addTaskTemplate(templateData)
-    }, []),
+      return await TaskTemplateService.addTaskTemplate(templateData, currentUser?.email)
+    }, [currentUser?.email]),
 
     delete: useCallback(async (templateId) => {
       return await TaskTemplateService.deleteTaskTemplate(templateId)
@@ -159,8 +207,8 @@ export const useDataManager = () => {
   // Subtask template operations
   const subtaskTemplateOperations = {
     add: useCallback(async (templateData) => {
-      return await SubTaskTemplateService.addSubTaskTemplate(templateData)
-    }, []),
+      return await SubTaskTemplateService.addSubTaskTemplate(templateData, currentUser?.email)
+    }, [currentUser?.email]),
 
     delete: useCallback(async (templateId) => {
       return await SubTaskTemplateService.deleteSubTaskTemplate(templateId)
@@ -193,28 +241,28 @@ export const useDataManager = () => {
           email: user.email,
           phone: user.phone
         }))
-      
+
       case 'clients':
         return data.clients.map(client => ({
           id: client.id,
           label: client.name,
           value: client.name
         }))
-      
+
       case 'taskTemplates':
         return data.taskTemplates.map(template => ({
           id: template.id,
           label: template.name,
           value: template.name
         }))
-      
+
       case 'subtaskTemplates':
         return data.subtaskTemplates.map(template => ({
           id: template.id,
           label: template.name,
           value: template.name
         }))
-      
+
       case 'priority':
         return [
           { id: 'low', label: 'Low', value: 'Low' },
@@ -222,7 +270,7 @@ export const useDataManager = () => {
           { id: 'high', label: 'High', value: 'High' },
           { id: 'critical', label: 'Critical', value: 'Critical' }
         ]
-      
+
       case 'status':
         return [
           { id: 'todo', label: 'Todo', value: 'Todo' },
@@ -230,7 +278,7 @@ export const useDataManager = () => {
           { id: 'completed', label: 'Completed', value: 'Completed' },
           { id: 'archived', label: 'Archived', value: 'Archived' }
         ]
-      
+
       default:
         return []
     }
@@ -242,14 +290,14 @@ export const useDataManager = () => {
     loading,
     error,
     isLoading,
-    
+
     // Operations
     taskOperations,
     userOperations,
     clientOperations,
     taskTemplateOperations,
     subtaskTemplateOperations,
-    
+
     // Utilities
     refresh,
     getDropdownData

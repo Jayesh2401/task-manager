@@ -46,8 +46,10 @@ const DropdownModal = ({ options, position, onSelect, onClose, allowAddNew = fal
 
   const handleAddNew = () => {
     if (newItemName.trim()) {
-      // For user fields, send special signal to open user modal
-      if (['client', 'allottedTo', 'teamLeader'].includes(fieldType)) {
+      // For client field, send special signal to open client modal
+      if (fieldType === 'client') {
+        onSelect('ADD_NEW_CLIENT')
+      } else if (['allottedTo', 'teamLeader'].includes(fieldType)) {
         onSelect('ADD_NEW_USER')
       } else if (fieldType === 'task') {
         onSelect('ADD_NEW_TASK')
@@ -63,8 +65,10 @@ const DropdownModal = ({ options, position, onSelect, onClose, allowAddNew = fal
   }
 
   const handleAddNewClick = useCallback(() => {
-    // For user fields, immediately open the appropriate modal
-    if (['client', 'allottedTo', 'teamLeader'].includes(fieldType)) {
+    // For client field, immediately open client modal
+    if (fieldType === 'client') {
+      onSelect('ADD_NEW_CLIENT')
+    } else if (['allottedTo', 'teamLeader'].includes(fieldType)) {
       onSelect('ADD_NEW_USER')
     } else if (fieldType === 'task') {
       onSelect('ADD_NEW_TASK')
@@ -132,7 +136,8 @@ const DropdownModal = ({ options, position, onSelect, onClose, allowAddNew = fal
             >
               <FaPlus className="w-3 h-3" />
               <span className="text-sm">
-                {['client', 'allottedTo', 'teamLeader'].includes(fieldType) ? 'Add New User' :
+                {fieldType === 'client' ? 'Add New Client' :
+                 ['allottedTo', 'teamLeader'].includes(fieldType) ? 'Add New User' :
                  fieldType === 'task' ? 'Add New Task' :
                  fieldType === 'subTask' ? 'Add New SubTask' : 'Add New'}
               </span>

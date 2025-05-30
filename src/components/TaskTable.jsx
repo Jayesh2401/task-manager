@@ -108,9 +108,11 @@ const TaskTable = ({
 
     switch (field) {
       case 'client':
+        // Client field uses client list
+        return dataManager.data.clients.map(client => client.name || client)
       case 'allottedTo':
       case 'teamLeader':
-        // All three use the same user list
+        // Allotted To and Team Leader use user list
         return dataManager.data.users.map(user => user.name || user)
       case 'task':
         return dataManager.data.taskTemplates.map(template => template.name)
@@ -127,8 +129,14 @@ const TaskTable = ({
 
   // Handle dropdown selection
   const handleDropdownSelect = useCallback((value) => {
+    // Check if this is an "Add New" request for client field
+    if (currentCell.field === 'client' && value === 'ADD_NEW_CLIENT') {
+      setActiveModal('addClientSimple')
+      return
+    }
+
     // Check if this is an "Add New" request for user fields
-    if (['client', 'allottedTo', 'teamLeader'].includes(currentCell.field) && value === 'ADD_NEW_USER') {
+    if (['allottedTo', 'teamLeader'].includes(currentCell.field) && value === 'ADD_NEW_USER') {
       setActiveModal('addUser')
       return
     }
@@ -236,8 +244,13 @@ const TaskTable = ({
 
     tasks.forEach(task => {
       if (itemType === 'user') {
-        // Check if user is used in client, allottedTo, or teamLeader fields
-        if (task.client === itemName || task.allottedTo === itemName || task.teamLeader === itemName) {
+        // Check if user is used in allottedTo or teamLeader fields
+        if (task.allottedTo === itemName || task.teamLeader === itemName) {
+          count++
+        }
+      } else if (itemType === 'client') {
+        // Check if client is used in client field
+        if (task.client === itemName) {
           count++
         }
       } else if (itemType === 'task template') {
@@ -277,6 +290,8 @@ const TaskTable = ({
     try {
       if (itemType === 'user') {
         await dataManager.userOperations.delete(item.id)
+      } else if (itemType === 'client') {
+        await dataManager.clientOperations.delete(item.id)
       } else if (itemType === 'task template') {
         await dataManager.taskTemplateOperations.delete(item.id)
       } else if (itemType === 'subtask template') {
@@ -601,18 +616,158 @@ const TaskTable = ({
         </div>
       )}
 
+      {/* Add Client Simple Modal (for dropdown "Add New Client") */}
+      {activeModal === 'addClientSimple' && dataManager && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-96">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                <svg className="w-5 h-5 text-blue-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                </svg>
+                Add Client
+              </h3>
+              <button
+                onClick={() => {
+                  setActiveModal(null)
+                  setCurrentCell({ taskId: null, field: null })
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={async (e) => {
+              e.preventDefault()
+              const formData = new FormData(e.target)
+              const clientData = {
+                name: formData.get('name'),
+                email: formData.get('email'),
+                phone: formData.get('phone')
+              }
+
+              if (!clientData.name || !clientData.email) {
+                alert('Please fill in all required fields')
+                return
+              }
+
+              try {
+                await dataManager.clientOperations.add(clientData)
+                // If we have a current cell, update it with the new client name
+                if (currentCell.taskId && currentCell.field) {
+                  updateTask(currentCell.taskId, currentCell.field, clientData.name)
+                }
+                setActiveModal(null)
+                setCurrentCell({ taskId: null, field: null })
+              } catch (error) {
+                console.error('Error adding client:', error)
+                alert('Failed to add client. Please try again.')
+              }
+            }}>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Client Name *
+                  </label>
+                  <input
+                    type="text"
+                    name="name"
+                    placeholder="Enter client name"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Email Address *
+                  </label>
+                  <input
+                    type="email"
+                    name="email"
+                    placeholder="Enter email address"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Phone Number
+                  </label>
+                  <input
+                    type="tel"
+                    name="phone"
+                    placeholder="Enter phone number"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-3 mt-6">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveModal(null)
+                    setCurrentCell({ taskId: null, field: null })
+                  }}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800 font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md font-medium transition-colors"
+                >
+                  Add Client
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Add Client Modal */}
-      {activeModal === 'addClient' && (
+      {activeModal === 'addClient' && dataManager && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-96">
             <h3 className="text-lg font-semibold mb-4">Add Client</h3>
-            <p className="text-gray-600 mb-4">Client management coming soon...</p>
+            <input
+              type="text"
+              placeholder="Enter client name"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md mb-4"
+              onKeyDown={async (e) => {
+                if (e.key === 'Enter' && e.target.value.trim()) {
+                  const clientName = e.target.value.trim()
+                  try {
+                    await dataManager.clientOperations.add({ name: clientName })
+                    // If we have a current cell, update it with the new client name
+                    if (currentCell.taskId && currentCell.field) {
+                      updateTask(currentCell.taskId, currentCell.field, clientName)
+                    }
+                    setActiveModal(null)
+                    setCurrentCell({ taskId: null, field: null })
+                  } catch (error) {
+                    console.error('Error adding client:', error)
+                    alert('Failed to add client. Please try again.')
+                  }
+                }
+              }}
+              autoFocus
+            />
             <div className="flex justify-end space-x-2">
               <button
-                onClick={() => setActiveModal(null)}
+                onClick={() => {
+                  setActiveModal(null)
+                  setCurrentCell({ taskId: null, field: null })
+                }}
                 className="px-4 py-2 text-gray-600 hover:text-gray-800"
               >
-                Close
+                Cancel
               </button>
             </div>
           </div>
@@ -625,7 +780,7 @@ const TaskTable = ({
           <div className="bg-white rounded-lg p-6 w-[800px] max-h-[80vh] overflow-hidden">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold">
-                Delete {deleteListType === 'client' ? 'Users' :
+                Delete {deleteListType === 'client' ? 'Clients' :
                        deleteListType === 'task' ? 'Task Templates' :
                        deleteListType === 'subTask' ? 'SubTask Templates' :
                        deleteListType === 'allottedTo' ? 'Users' :
@@ -686,7 +841,10 @@ const TaskTable = ({
                 let items = []
                 let itemType = ''
 
-                if (['client', 'allottedTo', 'teamLeader'].includes(deleteListType)) {
+                if (deleteListType === 'client') {
+                  items = dataManager?.data.clients || []
+                  itemType = 'client'
+                } else if (['allottedTo', 'teamLeader'].includes(deleteListType)) {
                   items = dataManager?.data.users || []
                   itemType = 'user'
                 } else if (deleteListType === 'task') {
