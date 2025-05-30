@@ -41,8 +41,42 @@ const EditableCell = ({ value, type, onChange, onClick }) => {
     }
   }
 
+  // Helper function to format number values
+  const formatNumberValue = (value) => {
+    if (!value || value === '' || value === null || value === undefined) return ''
+
+    const numStr = value.toString().trim()
+
+    // Handle empty or invalid strings
+    if (numStr === '' || numStr === '0' || numStr === '00' || numStr === '000') {
+      return '0'
+    }
+
+    // If it's a decimal number (contains a dot)
+    if (numStr.includes('.')) {
+      const num = parseFloat(numStr)
+      if (isNaN(num)) return ''
+
+      // Remove trailing zeros after decimal point
+      return num.toString()
+    }
+
+    // If it's a whole number, remove leading zeros
+    const num = parseInt(numStr, 10)
+    if (isNaN(num)) return ''
+
+    return num.toString()
+  }
+
   const handleSave = () => {
-    onChange(editValue)
+    // Format number values to remove unnecessary leading zeros
+    if (type === 'number') {
+      const formattedValue = formatNumberValue(editValue)
+      console.log('Number formatting:', { original: editValue, formatted: formattedValue })
+      onChange(formattedValue)
+    } else {
+      onChange(editValue)
+    }
     setIsEditing(false)
   }
 
@@ -87,7 +121,6 @@ const EditableCell = ({ value, type, onChange, onClick }) => {
 
     switch (type) {
       case 'dropdown':
-      case 'frequency':
         return (
           <div
             onClick={onClick}
@@ -97,15 +130,71 @@ const EditableCell = ({ value, type, onChange, onClick }) => {
           </div>
         )
 
+      case 'frequency':
+        // Format frequency display to show user-friendly text
+        const formatFrequencyDisplay = (freq) => {
+          if (!freq || freq === 'None') return 'None'
+
+          if (freq.includes('|')) {
+            const parts = freq.split('|')
+            const frequency = parts[0]
+            const startDate = parts[1] ? new Date(parts[1]).toLocaleDateString('en-GB') : ''
+            const endDate = parts[2] ? new Date(parts[2]).toLocaleDateString('en-GB') : ''
+
+            let display = frequency
+            if (startDate || endDate) {
+              display += ' ('
+              if (startDate) display += `from ${startDate}`
+              if (startDate && endDate) display += ' '
+              if (endDate) display += `to ${endDate}`
+              display += ')'
+            }
+            return display
+          }
+
+          return freq
+        }
+
+        return (
+          <div
+            onClick={onClick}
+            className="w-full px-2 py-1 cursor-pointer hover:bg-gray-100 rounded border border-transparent hover:border-gray-300"
+            title={value ? formatFrequencyDisplay(value) : 'Click to set frequency'}
+          >
+            {formatFrequencyDisplay(value) || 'Select...'}
+          </div>
+        )
+
       case 'date':
         return (
-          <DatePicker
-            selected={value ? new Date(value) : null}
-            onChange={(date) => onChange(date ? date.toISOString().split('T')[0] : '')}
-            dateFormat="yyyy-MM-dd"
-            className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholderText="Select date"
-          />
+          <div className="w-full" onClick={(e) => e.stopPropagation()}>
+            <DatePicker
+              selected={value ? new Date(value) : null}
+              onChange={(date) => {
+                onChange(date ? date.toISOString().split('T')[0] : '')
+              }}
+              dateFormat="dd/MM/yyyy"
+              className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm cursor-pointer bg-gray-50"
+              placeholderText="📅 Select date"
+              showPopperArrow={false}
+              popperClassName="react-datepicker-popper"
+              calendarClassName="shadow-lg border border-gray-200 rounded-lg"
+              wrapperClassName="w-full"
+              autoComplete="off"
+              isClearable={true}
+              showYearDropdown={true}
+              showMonthDropdown={true}
+              dropdownMode="select"
+              onKeyDown={(e) => {
+                // Prevent all typing - only allow calendar interaction
+                e.preventDefault()
+              }}
+              onChangeRaw={(e) => {
+                // Prevent manual input changes
+                e.preventDefault()
+              }}
+            />
+          </div>
         )
 
       case 'text':
@@ -119,13 +208,17 @@ const EditableCell = ({ value, type, onChange, onClick }) => {
         )
 
       case 'number':
+        // Format the display value to remove leading zeros
+        const displayValue = value ? formatNumberValue(value) : ''
+        console.log('Number display:', { original: value, formatted: displayValue })
+
         return (
           <div
             onClick={handleClick}
             className="w-full px-2 py-1 cursor-pointer hover:bg-blue-50 rounded min-h-[24px] border border-transparent hover:border-blue-200"
             title="Click to edit"
           >
-            {value || <span className="text-gray-400">0</span>}
+            {displayValue || <span className="text-gray-400">0</span>}
           </div>
         )
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import Dashboard from './components/Dashboard'
 import TaskTable from './components/TaskTable'
 import ClientDashboard from './components/ClientDashboard'
@@ -10,11 +10,13 @@ import AuthContainer from './components/auth/AuthContainer'
 import useKeyboardShortcuts from './hooks/useKeyboardShortcuts'
 import { useDataManager } from './hooks/useDataManager'
 import { useAuth } from './hooks/useAuth'
+import "react-datepicker/dist/react-datepicker.css"
 import './App.css'
 
 function App() {
   const [selectedRows, setSelectedRows] = useState([])
   const [activeModal, setActiveModal] = useState(null)
+  const [activeFilter, setActiveFilter] = useState(null) // For dashboard filtering
   const { user, loading: authLoading, signOut } = useAuth()
   const dataManager = useDataManager(user)
 
@@ -41,22 +43,12 @@ function App() {
     }
   }, [dataManager])
 
-  // Add sample data if none exists
-  useEffect(() => {
-    const addSampleDataIfNeeded = async () => {
-      if (dataManager && !dataManager.isLoading && dataManager.data.tasks.length === 0) {
-        try {
-          // Add a sample task
-          await addNewTask()
-        } catch (error) {
-          console.error('Error adding sample data:', error)
-        }
-      }
-    }
+  // Remove automatic task creation - users should manually add tasks
 
-    const timer = setTimeout(addSampleDataIfNeeded, 2000) // Wait 2 seconds for data to load
-    return () => clearTimeout(timer)
-  }, [dataManager, addNewTask])
+  // Handle dashboard filter clicks
+  const handleDashboardFilter = useCallback((filterType) => {
+    setActiveFilter(prevFilter => prevFilter === filterType ? null : filterType)
+  }, [])
 
   const deleteSelectedTasks = useCallback(async () => {
     if (selectedRows.length > 0) {
@@ -238,7 +230,11 @@ function App() {
 
       {/* Main Content */}
       <div className="w-full px-5 py-6">
-        <Dashboard tasks={dataManager.data.tasks} />
+        <Dashboard
+          tasks={dataManager.data.tasks}
+          activeFilter={activeFilter}
+          onFilterClick={handleDashboardFilter}
+        />
 
         <TaskTable
           tasks={dataManager.data.tasks}
@@ -249,6 +245,7 @@ function App() {
           addNewTask={addNewTask}
           deleteSelectedTasks={deleteSelectedTasks}
           onColumnAction={handleColumnAction}
+          activeFilter={activeFilter}
         />
       </div>
 

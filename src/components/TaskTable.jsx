@@ -13,7 +13,8 @@ const TaskTable = ({
   updateTask,
   addNewTask,
   deleteSelectedTasks,
-  onColumnAction
+  onColumnAction,
+  activeFilter
 }) => {
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' })
   const [activeModal, setActiveModal] = useState(null)
@@ -173,6 +174,62 @@ const TaskTable = ({
   const filteredAndSortedTasks = useMemo(() => {
     let filtered = [...tasks]
 
+    // Apply dashboard filter
+    if (activeFilter && activeFilter !== 'all') {
+      const today = new Date().toISOString().split('T')[0]
+      const tomorrow = new Date()
+      tomorrow.setDate(tomorrow.getDate() + 1)
+      const tomorrowStr = tomorrow.toISOString().split('T')[0]
+
+      const startOfWeek = new Date()
+      const endOfWeek = new Date()
+      startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay())
+      endOfWeek.setDate(startOfWeek.getDate() + 6)
+
+      switch (activeFilter) {
+        case 'due-today':
+          filtered = filtered.filter(task => task.dueDate === today)
+          break
+        case 'due-tomorrow':
+          filtered = filtered.filter(task => task.dueDate === tomorrowStr)
+          break
+        case 'this-week':
+          filtered = filtered.filter(task => {
+            if (!task.dueDate) return false
+            const taskDate = new Date(task.dueDate)
+            return taskDate >= startOfWeek && taskDate <= endOfWeek
+          })
+          break
+        case 'overdue':
+          filtered = filtered.filter(task => {
+            if (!task.dueDate) return false
+            return new Date(task.dueDate) < new Date() && task.status !== 'Completed'
+          })
+          break
+        case 'priority-low':
+          filtered = filtered.filter(task => task.priority === 'Low')
+          break
+        case 'priority-high':
+          filtered = filtered.filter(task => task.priority === 'High')
+          break
+        case 'status-todo':
+          filtered = filtered.filter(task => task.status === 'Todo')
+          break
+        case 'status-inprogress':
+          filtered = filtered.filter(task => task.status === 'In Progress')
+          break
+        case 'status-completed':
+          filtered = filtered.filter(task => task.status === 'Completed')
+          break
+        case 'status-archived':
+          filtered = filtered.filter(task => task.status === 'Archived')
+          break
+        default:
+          break
+      }
+    }
+
+    // Apply sorting
     if (sortConfig.key) {
       filtered.sort((a, b) => {
         if (a[sortConfig.key] < b[sortConfig.key]) {
@@ -186,7 +243,7 @@ const TaskTable = ({
     }
 
     return filtered
-  }, [tasks, sortConfig])
+  }, [tasks, sortConfig, activeFilter])
 
   // Handle sorting
   const handleSort = useCallback((key) => {
@@ -313,17 +370,49 @@ const TaskTable = ({
     }
   }, [dataManager, getUsageCount])
 
+  // Get filter display name
+  const getFilterDisplayName = (filterType) => {
+    const filterNames = {
+      'all': 'All Tasks',
+      'due-today': 'Due Today',
+      'due-tomorrow': 'Due Tomorrow',
+      'this-week': 'This Week',
+      'overdue': 'Overdue',
+      'priority-low': 'Low Priority',
+      'priority-high': 'High Priority',
+      'status-todo': 'Todo',
+      'status-inprogress': 'In Progress',
+      'status-completed': 'Completed',
+      'status-archived': 'Archived'
+    }
+    return filterNames[filterType] || filterType
+  }
+
   return (
     <div className="bg-white rounded-lg shadow-lg overflow-hidden">
       {/* Action Bar */}
       <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
         {/* Left side buttons */}
-        <div className="flex space-x-2">
-          <button
-            className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center space-x-2"
-            disabled={selectedRows.length === 0}
-            onClick={() => selectedRows.length > 0 && deleteSelectedTasks()}
-          >
+        <div className="flex items-center space-x-4">
+          {/* Filter indicator */}
+          {activeFilter && activeFilter !== 'all' && (
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-500">Filtered by:</span>
+              <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">
+                {getFilterDisplayName(activeFilter)}
+              </span>
+              <span className="text-sm text-gray-400">
+                ({filteredAndSortedTasks.length} of {tasks.length} tasks)
+              </span>
+            </div>
+          )}
+
+          <div className="flex space-x-2">
+            <button
+              className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center space-x-2"
+              disabled={selectedRows.length === 0}
+              onClick={() => selectedRows.length > 0 && deleteSelectedTasks()}
+            >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" clipRule="evenodd" />
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
@@ -337,6 +426,7 @@ const TaskTable = ({
             </svg>
             <span>Export</span>
           </button>
+          </div>
         </div>
 
         {/* Right side buttons */}
@@ -474,7 +564,7 @@ const TaskTable = ({
                         value={task[column.key]}
                         type={column.type}
                         onChange={(value) => updateTask(task.id, column.key, value)}
-                        onClick={(e) => handleCellClick(e, task.id, column.key)}
+                        onClick={column.type === 'date' ? undefined : (e) => handleCellClick(e, task.id, column.key)}
                       />
                     </div>
                   </td>
@@ -502,6 +592,7 @@ const TaskTable = ({
           position={modalPosition}
           onSelect={handleFrequencySelect}
           onClose={() => setActiveModal(null)}
+          currentValue={currentCell.taskId ? tasks.find(t => t.id === currentCell.taskId)?.frequency || 'None' : 'None'}
         />
       )}
 

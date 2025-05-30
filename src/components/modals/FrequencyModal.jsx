@@ -1,11 +1,27 @@
 import React, { useState, useRef, useEffect } from 'react'
 import DatePicker from 'react-datepicker'
 
-const FrequencyModal = ({ position, onSelect, onClose }) => {
-  const [selectedFrequency, setSelectedFrequency] = useState('None')
+const FrequencyModal = ({ position, onSelect, onClose, currentValue = 'None' }) => {
+  const [selectedFrequency, setSelectedFrequency] = useState(currentValue)
   const [startDate, setStartDate] = useState(null)
   const [endDate, setEndDate] = useState(null)
   const modalRef = useRef(null)
+
+  // Parse current value if it contains date information
+  useEffect(() => {
+    if (currentValue && currentValue !== 'None' && currentValue.includes('|')) {
+      const parts = currentValue.split('|')
+      if (parts.length >= 1) {
+        setSelectedFrequency(parts[0])
+      }
+      if (parts.length >= 2 && parts[1]) {
+        setStartDate(new Date(parts[1]))
+      }
+      if (parts.length >= 3 && parts[2]) {
+        setEndDate(new Date(parts[2]))
+      }
+    }
+  }, [currentValue])
 
   const frequencyOptions = [
     'Daily',
@@ -41,7 +57,19 @@ const FrequencyModal = ({ position, onSelect, onClose }) => {
   }, [onClose])
 
   const handleConfirm = () => {
-    onSelect(selectedFrequency, startDate, endDate)
+    let frequencyValue = selectedFrequency
+
+    // If frequency is not 'None' and dates are selected, include them
+    if (selectedFrequency !== 'None') {
+      if (startDate || endDate) {
+        const startDateStr = startDate ? startDate.toISOString().split('T')[0] : ''
+        const endDateStr = endDate ? endDate.toISOString().split('T')[0] : ''
+        frequencyValue = `${selectedFrequency}|${startDateStr}|${endDateStr}`
+      }
+    }
+
+    console.log('Frequency value being saved:', frequencyValue)
+    onSelect(frequencyValue)
   }
 
   const handleCancel = () => {
@@ -50,13 +78,46 @@ const FrequencyModal = ({ position, onSelect, onClose }) => {
 
   const needsDateRange = selectedFrequency !== 'None'
 
+  // Calculate dynamic position to stay within viewport
+  const calculatePosition = () => {
+    const modalWidth = 500
+    const modalHeight = 450
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+
+    let left = position.x
+    let top = position.y + 10
+
+    // Adjust horizontal position if modal would go off-screen
+    if (left + modalWidth > viewportWidth - 20) {
+      left = viewportWidth - modalWidth - 20
+    }
+    if (left < 20) {
+      left = 20
+    }
+
+    // Adjust vertical position if modal would go off-screen
+    if (top + modalHeight > viewportHeight - 20) {
+      top = position.y - modalHeight - 10
+    }
+    if (top < 20) {
+      top = 20
+    }
+
+    return { left, top }
+  }
+
+  const modalPosition = calculatePosition()
+
   return (
     <div
       ref={modalRef}
-      className="fixed bg-white border border-gray-300 rounded-lg shadow-xl z-50 w-96"
+      className="fixed bg-white border border-gray-300 rounded-lg shadow-xl w-[500px] frequency-modal"
       style={{
-        left: Math.max(10, position.x - 200),
-        top: position.y + 10
+        left: modalPosition.left,
+        top: modalPosition.top,
+        maxHeight: '450px',
+        zIndex: 9999
       }}
     >
       {/* Header */}
@@ -100,8 +161,23 @@ const FrequencyModal = ({ position, onSelect, onClose }) => {
                 selected={startDate}
                 onChange={setStartDate}
                 dateFormat="dd/MM/yyyy"
-                placeholderText="dd/mm/yyyy"
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholderText="📅 Select start date"
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer bg-gray-50"
+                showPopperArrow={false}
+                popperClassName="z-[10000]"
+                calendarClassName="shadow-lg border border-gray-200 rounded-lg"
+                isClearable={true}
+                showYearDropdown={true}
+                showMonthDropdown={true}
+                dropdownMode="select"
+                onKeyDown={(e) => {
+                  // Prevent all typing - only allow calendar interaction
+                  e.preventDefault()
+                }}
+                onChangeRaw={(e) => {
+                  // Prevent manual input changes
+                  e.preventDefault()
+                }}
               />
             </div>
 
@@ -114,9 +190,24 @@ const FrequencyModal = ({ position, onSelect, onClose }) => {
                 selected={endDate}
                 onChange={setEndDate}
                 dateFormat="dd/MM/yyyy"
-                placeholderText="dd/mm/yyyy"
+                placeholderText="📅 Select end date"
                 minDate={startDate}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer bg-gray-50"
+                showPopperArrow={false}
+                popperClassName="z-[10000]"
+                calendarClassName="shadow-lg border border-gray-200 rounded-lg"
+                isClearable={true}
+                showYearDropdown={true}
+                showMonthDropdown={true}
+                dropdownMode="select"
+                onKeyDown={(e) => {
+                  // Prevent all typing - only allow calendar interaction
+                  e.preventDefault()
+                }}
+                onChangeRaw={(e) => {
+                  // Prevent manual input changes
+                  e.preventDefault()
+                }}
               />
             </div>
           </div>
