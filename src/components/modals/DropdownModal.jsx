@@ -5,8 +5,18 @@ const DropdownModal = ({ options, position, onSelect, onClose, allowAddNew = fal
   const [searchTerm, setSearchTerm] = useState('')
   const [showAddNew, setShowAddNew] = useState(false)
   const [newItemName, setNewItemName] = useState('')
+  const [selectedIndex, setSelectedIndex] = useState(-1)
   const modalRef = useRef(null)
   const searchRef = useRef(null)
+
+  const filteredOptions = options.filter(option =>
+    option.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+
+  // Reset selected index when search term changes
+  useEffect(() => {
+    setSelectedIndex(-1)
+  }, [searchTerm])
 
   useEffect(() => {
     if (searchRef.current) {
@@ -21,24 +31,39 @@ const DropdownModal = ({ options, position, onSelect, onClose, allowAddNew = fal
       }
     }
 
-    const handleEscape = (event) => {
+    const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
         onClose()
+      } else if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        const maxIndex = allowAddNew ? filteredOptions.length : filteredOptions.length - 1
+        setSelectedIndex(prev =>
+          prev < maxIndex ? prev + 1 : 0
+        )
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        const maxIndex = allowAddNew ? filteredOptions.length : filteredOptions.length - 1
+        setSelectedIndex(prev =>
+          prev > 0 ? prev - 1 : maxIndex
+        )
+      } else if (event.key === 'Enter') {
+        event.preventDefault()
+        if (selectedIndex >= 0 && selectedIndex < filteredOptions.length) {
+          handleSelect(filteredOptions[selectedIndex])
+        } else if (selectedIndex === filteredOptions.length && allowAddNew) {
+          handleAddNewClick()
+        }
       }
     }
 
     document.addEventListener('mousedown', handleClickOutside)
-    document.addEventListener('keydown', handleEscape)
+    document.addEventListener('keydown', handleKeyDown)
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside)
-      document.removeEventListener('keydown', handleEscape)
+      document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [onClose])
-
-  const filteredOptions = options.filter(option =>
-    option.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  }, [onClose, selectedIndex, filteredOptions])
 
   const handleSelect = (option) => {
     onSelect(option)
@@ -114,7 +139,12 @@ const DropdownModal = ({ options, position, onSelect, onClose, allowAddNew = fal
             <div
               key={index}
               onClick={() => handleSelect(option)}
-              className="px-4 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+              onMouseEnter={() => setSelectedIndex(index)}
+              className={`px-4 py-2 cursor-pointer border-b border-gray-100 last:border-b-0 ${
+                index === selectedIndex
+                  ? 'bg-blue-100 text-blue-900'
+                  : 'hover:bg-blue-50'
+              }`}
             >
               {option}
             </div>
@@ -132,7 +162,11 @@ const DropdownModal = ({ options, position, onSelect, onClose, allowAddNew = fal
           {!showAddNew ? (
             <div
               onClick={handleAddNewClick}
-              className="px-4 py-2 hover:bg-gray-50 cursor-pointer flex items-center space-x-2 text-blue-600"
+              className={`px-4 py-2 cursor-pointer flex items-center space-x-2 text-blue-600 ${
+                selectedIndex === filteredOptions.length
+                  ? 'bg-blue-100'
+                  : 'hover:bg-gray-50'
+              }`}
             >
               <FaPlus className="w-3 h-3" />
               <span className="text-sm">

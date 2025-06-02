@@ -116,7 +116,7 @@ const FrequencyModal = ({ position, onSelect, onClose, currentValue = 'None' }) 
       style={{
         left: modalPosition.left,
         top: modalPosition.top,
-        maxHeight: '450px',
+        maxHeight: '550px',
         zIndex: 9999
       }}
     >

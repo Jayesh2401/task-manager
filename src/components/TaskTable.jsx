@@ -27,12 +27,19 @@ const TaskTable = ({
   const tableRef = useRef(null)
   const [windowWidth, setWindowWidth] = useState(window.innerWidth)
 
+  // Excel-like navigation state
+  const [focusedCell, setFocusedCell] = useState({ taskIndex: null, columnIndex: null })
+  const [isNavigating, setIsNavigating] = useState(false)
+  const [modalOpenedFrom, setModalOpenedFrom] = useState(null) // Track where modal was opened from
+
   // Update window width on resize
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth)
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
+
+
 
   // Define table columns with responsive widths
   const getColumnWidth = (key) => {
@@ -56,7 +63,7 @@ const TaskTable = ({
     return Math.floor(baseWidths[key] * scaleFactor)
   }
 
-  const columns = [
+  const columns = useMemo(() => [
     { key: 'client', label: 'Client', type: 'dropdown', width: getColumnWidth('client') },
     { key: 'task', label: 'Task', type: 'dropdown', width: getColumnWidth('task') },
     { key: 'subTask', label: 'Sub Task', type: 'dropdown', width: getColumnWidth('subTask') },
@@ -69,10 +76,12 @@ const TaskTable = ({
     { key: 'comment', label: 'Comment', type: 'textarea', width: getColumnWidth('comment') },
     { key: 'status', label: 'Status', type: 'dropdown', width: getColumnWidth('status') },
     { key: 'timeTaken', label: 'Time Taken', type: 'number', width: getColumnWidth('timeTaken') }
-  ]
+  ], [windowWidth])
 
   const priorityOptions = useMemo(() => ['Low', 'Medium', 'High', 'Critical'], [])
   const statusOptions = useMemo(() => ['Todo', 'In Progress', 'Completed', 'Archived'], [])
+
+
 
   // Handle row selection
   const handleRowSelect = useCallback((taskId) => {
@@ -88,13 +97,18 @@ const TaskTable = ({
   }, [setSelectedRows, selectedRows, tasks])
 
   // Handle cell click for dropdowns and special inputs
-  const handleCellClick = useCallback((event, taskId, field) => {
+  const handleCellClick = useCallback((event, taskId, field, taskIndex, columnIndex) => {
     event.preventDefault()
     event.stopPropagation()
 
     const rect = event.currentTarget.getBoundingClientRect()
     setModalPosition({ x: rect.left, y: rect.bottom + 5 })
     setCurrentCell({ taskId, field })
+
+    // Set focus and track modal origin since event won't bubble to td
+    setIsNavigating(true)
+    setFocusedCell({ taskIndex, columnIndex })
+    setModalOpenedFrom({ taskIndex, columnIndex })
 
     if (['client', 'task', 'subTask', 'allottedTo', 'teamLeader', 'priority', 'status'].includes(field)) {
       setActiveModal('dropdown')
@@ -244,6 +258,160 @@ const TaskTable = ({
 
     return filtered
   }, [tasks, sortConfig, activeFilter])
+
+  // Handle cell activation for Excel-like navigation
+  const handleCellActivation = useCallback((taskIndex, columnIndex) => {
+    const task = filteredAndSortedTasks[taskIndex]
+    const column = columns[columnIndex]
+
+    if (!task || !column) return
+
+    // Create a mock event for positioning
+    const tableElement = tableRef.current
+    if (tableElement) {
+      const cellElement = tableElement.querySelector(
+        `tbody tr:nth-child(${taskIndex + 1}) td:nth-child(${columnIndex + 3})`
+      )
+
+      if (cellElement) {
+        const rect = cellElement.getBoundingClientRect()
+        setModalPosition({ x: rect.left, y: rect.bottom + 5 })
+        setCurrentCell({ taskId: task.id, field: column.key })
+
+        // Track where modal was opened from for focus restoration
+        setModalOpenedFrom({ taskIndex, columnIndex })
+
+        // Open appropriate modal/editor based on field type
+        if (['client', 'task', 'subTask', 'allottedTo', 'teamLeader', 'priority', 'status'].includes(column.key)) {
+          setActiveModal('dropdown')
+        } else if (column.key === 'frequency') {
+          setActiveModal('frequency')
+        } else if (column.key === 'comment') {
+          // For comment field, trigger direct editing like number fields
+          const editableCell = cellElement.querySelector('[data-editable]')
+          if (editableCell) {
+            editableCell.click()
+          }
+        } else if (['estimatedTime', 'timeTaken'].includes(column.key)) {
+          // For number fields, trigger direct editing
+          const editableCell = cellElement.querySelector('[data-editable]')
+          if (editableCell) {
+            editableCell.click()
+          }
+        } else if (column.key === 'dueDate') {
+          // For date fields, trigger date picker
+          const dateInput = cellElement.querySelector('.react-datepicker__input-container input')
+          if (dateInput) {
+            dateInput.click()
+          }
+        }
+      }
+    }
+  }, [filteredAndSortedTasks, columns])
+
+  // Restore focus when modal closes
+  useEffect(() => {
+    if (!activeModal && modalOpenedFrom) {
+      // Modal just closed - restore focus to where it was opened from
+      setIsNavigating(true)
+      setFocusedCell({
+        taskIndex: modalOpenedFrom.taskIndex,
+        columnIndex: modalOpenedFrom.columnIndex
+      })
+      setModalOpenedFrom(null)
+
+      // Ensure table gets focus for keyboard navigation
+      setTimeout(() => {
+        if (tableRef.current) {
+          tableRef.current.focus()
+        }
+      }, 100)
+    }
+  }, [activeModal, modalOpenedFrom])
+
+  // Excel-like keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Only handle navigation when not in a modal, table is focused, and not editing
+      if (activeModal || !isNavigating) return
+
+      // Don't handle navigation if user is editing (typing in input/textarea)
+      const activeElement = document.activeElement
+      if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')) {
+        return
+      }
+
+      const { taskIndex, columnIndex } = focusedCell
+      const maxTaskIndex = filteredAndSortedTasks.length - 1
+      const maxColumnIndex = columns.length - 1
+
+      switch (e.key) {
+        case 'Enter':
+          e.preventDefault()
+          if (taskIndex !== null && columnIndex !== null) {
+            handleCellActivation(taskIndex, columnIndex)
+          }
+          break
+
+        case 'Tab':
+          e.preventDefault()
+          if (taskIndex !== null && columnIndex !== null) {
+            const nextColumnIndex = e.shiftKey
+              ? (columnIndex > 0 ? columnIndex - 1 : maxColumnIndex)
+              : (columnIndex < maxColumnIndex ? columnIndex + 1 : 0)
+
+            const nextTaskIndex = !e.shiftKey && columnIndex === maxColumnIndex
+              ? (taskIndex < maxTaskIndex ? taskIndex + 1 : 0)
+              : e.shiftKey && columnIndex === 0
+              ? (taskIndex > 0 ? taskIndex - 1 : maxTaskIndex)
+              : taskIndex
+
+            setFocusedCell({ taskIndex: nextTaskIndex, columnIndex: nextColumnIndex })
+          }
+          break
+
+        case 'ArrowUp':
+          e.preventDefault()
+          if (taskIndex !== null && taskIndex > 0) {
+            setFocusedCell(prev => ({ ...prev, taskIndex: taskIndex - 1 }))
+          }
+          break
+
+        case 'ArrowDown':
+          e.preventDefault()
+          if (taskIndex !== null && taskIndex < maxTaskIndex) {
+            setFocusedCell(prev => ({ ...prev, taskIndex: taskIndex + 1 }))
+          }
+          break
+
+        case 'ArrowLeft':
+          e.preventDefault()
+          if (columnIndex !== null && columnIndex > 0) {
+            setFocusedCell(prev => ({ ...prev, columnIndex: columnIndex - 1 }))
+          }
+          break
+
+        case 'ArrowRight':
+          e.preventDefault()
+          if (columnIndex !== null && columnIndex < maxColumnIndex) {
+            setFocusedCell(prev => ({ ...prev, columnIndex: columnIndex + 1 }))
+          }
+          break
+
+        case 'Escape':
+          e.preventDefault()
+          // In Excel-like behavior, Escape should not clear focus
+          // It should just cancel any current editing and stay on the same cell
+          // Focus remains on current cell for continued navigation
+          break
+      }
+    }
+
+    if (isNavigating) {
+      document.addEventListener('keydown', handleKeyDown)
+      return () => document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isNavigating, focusedCell, activeModal, filteredAndSortedTasks, columns, handleCellActivation])
 
   // Handle sorting
   const handleSort = useCallback((key) => {
@@ -448,9 +616,21 @@ const TaskTable = ({
         </div>
       </div>
 
+
+
       {/* Table */}
       <div className="overflow-x-auto" ref={tableRef}>
-        <table className="w-full">
+        <table
+          className="w-full"
+          tabIndex={0}
+          onFocus={() => {
+            // Auto-focus first cell when table gets focus
+            if (!isNavigating && filteredAndSortedTasks.length > 0) {
+              setIsNavigating(true)
+              setFocusedCell({ taskIndex: 0, columnIndex: 0 })
+            }
+          }}
+        >
           <thead className="bg-gray-800 text-white">
             {/* First row: Action icons */}
             <tr className="bg-gray-700">
@@ -541,8 +721,10 @@ const TaskTable = ({
             </tr>
           </thead>
 
-          <tbody className="bg-white divide-y divide-gray-200">
-            {filteredAndSortedTasks.map((task, index) => (
+          <tbody
+            className="bg-white divide-y divide-gray-200"
+          >
+            {filteredAndSortedTasks.map((task, taskIndex) => (
               <tr key={task.id} className={`hover:bg-gray-50 ${selectedRows.includes(task.id) ? 'bg-blue-50' : ''}`}>
                 <td className="px-4 py-3">
                   <input
@@ -552,23 +734,52 @@ const TaskTable = ({
                     className="rounded border-gray-300"
                   />
                 </td>
-                <td className="px-4 py-3 text-sm text-gray-900">{index + 1}</td>
-                {columns.map(column => (
-                  <td
-                    key={column.key}
-                    className="px-3 py-3"
-                    style={{ width: `${column.width}px`, minWidth: `${column.width}px`, maxWidth: `${column.width}px` }}
-                  >
-                    <div className="truncate">
-                      <EditableCell
-                        value={task[column.key]}
-                        type={column.type}
-                        onChange={(value) => updateTask(task.id, column.key, value)}
-                        onClick={column.type === 'date' ? undefined : (e) => handleCellClick(e, task.id, column.key)}
-                      />
-                    </div>
-                  </td>
-                ))}
+                <td className="px-4 py-3 text-sm text-gray-900">{taskIndex + 1}</td>
+                {columns.map((column, columnIndex) => {
+                  const isFocused = focusedCell.taskIndex === taskIndex && focusedCell.columnIndex === columnIndex
+                  return (
+                    <td
+                      key={column.key}
+                      className={`px-3 py-3 relative transition-all duration-200 ${
+                        isFocused
+                          ? 'bg-blue-50 ring-1 ring-blue-300 ring-inset'
+                          : ''
+                      }`}
+                      style={{ width: `${column.width}px`, minWidth: `${column.width}px`, maxWidth: `${column.width}px` }}
+                      onClick={() => {
+                        // Always focus this exact column when clicked anywhere in the cell
+                        setIsNavigating(true)
+                        setFocusedCell({ taskIndex, columnIndex })
+
+                        // Track where modal might be opened from for focus restoration
+                        setModalOpenedFrom({ taskIndex, columnIndex })
+
+                        // Ensure table gets focus for keyboard navigation
+                        if (tableRef.current) {
+                          tableRef.current.focus()
+                        }
+                      }}
+                    >
+                      <div className="truncate">
+                        <EditableCell
+                          value={task[column.key]}
+                          type={column.type}
+                          onChange={(value) => {
+                            updateTask(task.id, column.key, value)
+                            // Date field focus management is now handled by the date picker detection
+                          }}
+                          onClick={column.type === 'date' ? undefined : (e) => handleCellClick(e, task.id, column.key, taskIndex, columnIndex)}
+                        />
+                      </div>
+                      {isFocused && (
+                        <div className="absolute inset-0 pointer-events-none">
+                          <div className="absolute top-0 left-0 w-full h-full border border-blue-400 rounded-sm opacity-30"></div>
+                          <div className="absolute -top-1 -left-1 w-1.5 h-1.5 bg-blue-400 rounded-full"></div>
+                        </div>
+                      )}
+                    </td>
+                  )
+                })}
               </tr>
             ))}
           </tbody>
@@ -595,6 +806,8 @@ const TaskTable = ({
           currentValue={currentCell.taskId ? tasks.find(t => t.id === currentCell.taskId)?.frequency || 'None' : 'None'}
         />
       )}
+
+
 
       {/* Add User Modal */}
       {activeModal === 'addUser' && dataManager && (
@@ -645,6 +858,9 @@ const TaskTable = ({
                     console.error('Error adding task template:', error)
                     alert('Failed to add task template. Please try again.')
                   }
+                } else if (e.key === 'Escape') {
+                  setActiveModal(null)
+                  setCurrentCell({ taskId: null, field: null })
                 }
               }}
               autoFocus
@@ -688,6 +904,9 @@ const TaskTable = ({
                     console.error('Error adding subtask template:', error)
                     alert('Failed to add subtask template. Please try again.')
                   }
+                } else if (e.key === 'Escape') {
+                  setActiveModal(null)
+                  setCurrentCell({ taskId: null, field: null })
                 }
               }}
               autoFocus
@@ -709,7 +928,15 @@ const TaskTable = ({
 
       {/* Add Client Simple Modal (for dropdown "Add New Client") */}
       {activeModal === 'addClientSimple' && dataManager && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              setActiveModal(null)
+              setCurrentCell({ taskId: null, field: null })
+            }
+          }}
+        >
           <div className="bg-white rounded-lg p-6 w-96">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-900 flex items-center">
@@ -846,6 +1073,9 @@ const TaskTable = ({
                     console.error('Error adding client:', error)
                     alert('Failed to add client. Please try again.')
                   }
+                } else if (e.key === 'Escape') {
+                  setActiveModal(null)
+                  setCurrentCell({ taskId: null, field: null })
                 }
               }}
               autoFocus

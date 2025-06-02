@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { FaUser, FaEnvelope, FaPhone, FaTimes, FaLock, FaEye, FaEyeSlash } from 'react-icons/fa'
 
 const AddUserModal = ({ isOpen, onClose, onAdd }) => {
@@ -11,6 +11,20 @@ const AddUserModal = ({ isOpen, onClose, onAdd }) => {
   const [errors, setErrors] = useState({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+
+  // Handle Escape key
+  useEffect(() => {
+    const handleEscape = (event) => {
+      if (event.key === 'Escape' && isOpen) {
+        handleClose()
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape)
+      return () => document.removeEventListener('keydown', handleEscape)
+    }
+  }, [isOpen])
 
   const validateForm = () => {
     const newErrors = {}

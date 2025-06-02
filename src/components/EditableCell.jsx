@@ -19,10 +19,11 @@ const EditableCell = ({ value, type, onChange, onClick }) => {
     }
   }, [isEditing, type])
 
-  const handleClick = () => {
+  const handleClick = (e) => {
     if (['number', 'textarea'].includes(type)) {
       setIsEditing(true)
     }
+    // Don't stop propagation - let the event bubble up to parent td
   }
 
   const handleDoubleClick = () => {
@@ -123,8 +124,12 @@ const EditableCell = ({ value, type, onChange, onClick }) => {
       case 'dropdown':
         return (
           <div
-            onClick={onClick}
+            onClick={(e) => {
+              if (onClick) onClick(e)
+              // Let event bubble up to parent td for focus handling
+            }}
             className="w-full px-2 py-1 cursor-pointer hover:bg-gray-100 rounded border border-transparent hover:border-gray-300"
+            data-editable="true"
           >
             {value || 'Select...'}
           </div>
@@ -157,9 +162,13 @@ const EditableCell = ({ value, type, onChange, onClick }) => {
 
         return (
           <div
-            onClick={onClick}
+            onClick={(e) => {
+              if (onClick) onClick(e)
+              // Let event bubble up to parent td for focus handling
+            }}
             className="w-full px-2 py-1 cursor-pointer hover:bg-gray-100 rounded border border-transparent hover:border-gray-300"
             title={value ? formatFrequencyDisplay(value) : 'Click to set frequency'}
+            data-editable="true"
           >
             {formatFrequencyDisplay(value) || 'Select...'}
           </div>
@@ -167,7 +176,7 @@ const EditableCell = ({ value, type, onChange, onClick }) => {
 
       case 'date':
         return (
-          <div className="w-full" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full" onClick={(e) => e.stopPropagation()} data-editable="true">
             <DatePicker
               selected={value ? new Date(value) : null}
               onChange={(date) => {
@@ -185,6 +194,7 @@ const EditableCell = ({ value, type, onChange, onClick }) => {
               showYearDropdown={true}
               showMonthDropdown={true}
               dropdownMode="select"
+              shouldCloseOnSelect={true}
               onKeyDown={(e) => {
                 // Prevent all typing - only allow calendar interaction
                 e.preventDefault()
@@ -214,9 +224,13 @@ const EditableCell = ({ value, type, onChange, onClick }) => {
 
         return (
           <div
-            onClick={handleClick}
+            onClick={(e) => {
+              handleClick(e)
+              // Let event bubble up to parent td for focus handling
+            }}
             className="w-full px-2 py-1 cursor-pointer hover:bg-blue-50 rounded min-h-[24px] border border-transparent hover:border-blue-200"
             title="Click to edit"
+            data-editable="true"
           >
             {displayValue || <span className="text-gray-400">0</span>}
           </div>
@@ -225,9 +239,13 @@ const EditableCell = ({ value, type, onChange, onClick }) => {
       case 'textarea':
         return (
           <div
-            onClick={handleClick}
+            onClick={(e) => {
+              handleClick(e)
+              // Let event bubble up to parent td for focus handling
+            }}
             className="w-full px-2 py-1 cursor-pointer hover:bg-blue-50 rounded min-h-[60px] max-h-[100px] overflow-y-auto border border-transparent hover:border-blue-200"
             title="Click to edit comment"
+            data-editable="true"
           >
             {value ? (
               <div className="whitespace-pre-wrap break-words">
