@@ -39,7 +39,8 @@ export const COLLECTIONS = {
   PROJECTS: 'projects',
   TASK_TEMPLATES: 'taskTemplates',
   SUBTASK_TEMPLATES: 'subtaskTemplates',
-  AUTH_USERS: 'authUsers' // For authenticated user profiles
+  AUTH_USERS: 'authUsers', // For authenticated user profiles
+  TASK_HISTORY: 'taskHistory' // For authenticated user profiles
 }
 
 export default app
