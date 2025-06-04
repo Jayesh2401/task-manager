@@ -246,6 +246,7 @@ function App() {
           deleteSelectedTasks={deleteSelectedTasks}
           onColumnAction={handleColumnAction}
           activeFilter={activeFilter}
+          currentUser={user}
         />
       </div>
 
