@@ -180,3 +180,155 @@ td .react-datepicker-popper {
 .frequency-modal .react-datepicker {
   z-index: 10000 !important;
 }
+
+/* Day End Modal and Report Modal styles */
+.day-end-modal, .day-end-report-modal {
+  z-index: 9999 !important;
+}
+
+.day-end-modal .react-datepicker-popper,
+.day-end-report-modal .react-datepicker-popper {
+  z-index: 10000 !important;
+}
+
+/* Report View styles */
+.report-view {
+  background-color: #f9fafb;
+}
+
+.report-view table {
+  font-size: 0.875rem;
+}
+
+.report-view .date-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+/* Enhanced date picker styles for better visibility */
+.react-datepicker__day--in-selecting-range {
+  background-color: #dbeafe !important;
+  color: #1e40af !important;
+}
+
+.react-datepicker__day--in-range {
+  background-color: #bfdbfe !important;
+  color: #1e40af !important;
+}
+
+.react-datepicker__day--range-start,
+.react-datepicker__day--range-end {
+  background-color: #3b82f6 !important;
+  color: white !important;
+}
+
+/* Improve date picker keyboard navigation */
+.react-datepicker__day {
+  cursor: pointer;
+  outline: none;
+}
+
+.react-datepicker__day:focus {
+  background-color: #3b82f6 !important;
+  color: white !important;
+  outline: 2px solid #1e40af;
+  outline-offset: -2px;
+}
+
+.react-datepicker__day--keyboard-selected {
+  background-color: #3b82f6 !important;
+  color: white !important;
+}
+
+.react-datepicker__day--selected:focus {
+  background-color: #1e40af !important;
+  color: white !important;
+}
+
+/* Ensure calendar is focusable */
+.react-datepicker {
+  outline: none;
+}
+
+.react-datepicker__month-container {
+  outline: none;
+}
+
+/* Improved modal backdrop */
+.modal-backdrop {
+  backdrop-filter: blur(2px);
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+/* Time input styling */
+.time-input {
+  text-align: center;
+  font-family: 'Courier New', monospace;
+  font-weight: 600;
+}
+
+/* Status and priority badges in report view */
+.status-badge, .priority-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.5rem;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+/* Report table improvements */
+.report-view table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.875rem;
+}
+
+.report-view th,
+.report-view td {
+  border: 1px solid #d1d5db;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  vertical-align: top;
+}
+
+.report-view .truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* Improve table readability */
+.report-view tbody tr:nth-child(even) {
+  background-color: #f9fafb;
+}
+
+.report-view tbody tr:hover {
+  background-color: #f3f4f6 !important;
+}
+
+/* Table header styling */
+.report-view thead th {
+  background-color: #f9fafb;
+  font-weight: 600;
+  color: #374151;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* Ensure proper spacing and alignment */
+.report-view table td,
+.report-view table th {
+  padding: 8px 12px;
+  text-align: left;
+}
+
+/* Center align specific columns */
+.report-view table th:nth-child(9),
+.report-view table td:nth-child(9),
+.report-view table th:nth-child(10),
+.report-view table td:nth-child(10) {
+  text-align: center;
+}
