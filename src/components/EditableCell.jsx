@@ -4,7 +4,9 @@ import DatePicker from 'react-datepicker'
 const EditableCell = ({ value, type, onChange, onClick }) => {
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState(value)
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
   const inputRef = useRef(null)
+  const datePickerRef = useRef(null)
 
   useEffect(() => {
     setEditValue(value)
@@ -178,9 +180,31 @@ const EditableCell = ({ value, type, onChange, onClick }) => {
         return (
           <div className="w-full" onClick={(e) => e.stopPropagation()} data-editable="true">
             <DatePicker
+              ref={datePickerRef}
               selected={value ? new Date(value) : null}
               onChange={(date) => {
                 onChange(date ? date.toISOString().split('T')[0] : '')
+                // Close the date picker after selection
+                setIsDatePickerOpen(false)
+
+                // Blur any focused date picker elements
+                setTimeout(() => {
+                  const activeElement = document.activeElement
+                  if (activeElement && (
+                    activeElement.closest('.react-datepicker') ||
+                    activeElement.closest('.react-datepicker-wrapper')
+                  )) {
+                    activeElement.blur()
+                  }
+                }, 50)
+
+                // Move to next column
+                setTimeout(() => {
+                  const event = new CustomEvent('datepicker-enter', {
+                    detail: { moveToNextColumn: true }
+                  })
+                  document.dispatchEvent(event)
+                }, 150)
               }}
               dateFormat="dd/MM/yyyy"
               className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm cursor-pointer bg-gray-50"
@@ -194,14 +218,94 @@ const EditableCell = ({ value, type, onChange, onClick }) => {
               showYearDropdown={true}
               showMonthDropdown={true}
               dropdownMode="select"
-              shouldCloseOnSelect={true}
+              shouldCloseOnSelect={false}
+              open={isDatePickerOpen}
+              onClickOutside={() => setIsDatePickerOpen(false)}
+              onClick={() => {
+                if (!isDatePickerOpen) {
+                  setIsDatePickerOpen(true)
+                }
+              }}
+              onFocus={() => {
+                if (!isDatePickerOpen) {
+                  setIsDatePickerOpen(true)
+                }
+              }}
               onKeyDown={(e) => {
-                // Prevent all typing - only allow calendar interaction
-                e.preventDefault()
+                // Allow normal date picker navigation
+                if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.key)) {
+                  e.stopPropagation()
+                  // Let the date picker handle these keys
+                  return
+                }
+
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  e.stopPropagation()
+
+                  // If calendar is open, let it handle the Enter key for date selection
+                  if (isDatePickerOpen) {
+                    // Close the date picker
+                    setIsDatePickerOpen(false)
+
+                    // Blur the current element
+                    setTimeout(() => {
+                      const activeElement = document.activeElement
+                      if (activeElement) {
+                        activeElement.blur()
+                      }
+                    }, 50)
+
+                    // Move to next column
+                    setTimeout(() => {
+                      const event = new CustomEvent('datepicker-enter', {
+                        detail: { moveToNextColumn: true }
+                      })
+                      document.dispatchEvent(event)
+                    }, 150)
+                    return
+                  }
+                } else if (e.key === 'Escape') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setIsDatePickerOpen(false)
+                } else if (e.key === ' ' || e.key === 'Spacebar') {
+                  // Space key opens the date picker
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setIsDatePickerOpen(true)
+                } else {
+                  // Prevent typing in the input
+                  e.preventDefault()
+                }
               }}
               onChangeRaw={(e) => {
                 // Prevent manual input changes
                 e.preventDefault()
+              }}
+              onCalendarOpen={() => {
+                // Disable table navigation when calendar is open
+                document.body.setAttribute('data-datepicker-open', 'true')
+                setIsDatePickerOpen(true)
+
+                // Focus the calendar after it opens
+                setTimeout(() => {
+                  const calendar = document.querySelector('.react-datepicker')
+                  if (calendar) {
+                    // Focus the selected date or today's date
+                    const selectedDay = calendar.querySelector('.react-datepicker__day--selected') ||
+                                       calendar.querySelector('.react-datepicker__day--today') ||
+                                       calendar.querySelector('.react-datepicker__day:not(.react-datepicker__day--disabled)')
+                    if (selectedDay) {
+                      selectedDay.focus()
+                    }
+                  }
+                }, 50)
+              }}
+              onCalendarClose={() => {
+                // Re-enable table navigation when calendar is closed
+                document.body.removeAttribute('data-datepicker-open')
+                setIsDatePickerOpen(false)
               }}
             />
           </div>
