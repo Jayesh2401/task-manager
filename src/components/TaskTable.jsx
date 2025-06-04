@@ -4,6 +4,9 @@ import EditableCell from './EditableCell'
 import DropdownModal from './modals/DropdownModal'
 import FrequencyModal from './modals/FrequencyModal'
 import AddUserModal from './modals/AddUserModal'
+import DayEndModal from './modals/DayEndModal'
+import DayEndReportModal from './modals/DayEndReportModal'
+import ReportView from './ReportView'
 
 const TaskTable = ({
   tasks,
@@ -14,7 +17,8 @@ const TaskTable = ({
   addNewTask,
   deleteSelectedTasks,
   onColumnAction,
-  activeFilter
+  activeFilter,
+  currentUser
 }) => {
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' })
   const [activeModal, setActiveModal] = useState(null)
@@ -24,6 +28,10 @@ const TaskTable = ({
   const [showDeleteList, setShowDeleteList] = useState(false)
   const [deleteListType, setDeleteListType] = useState('')
   const [deletingItems, setDeletingItems] = useState(new Set())
+  const [showDayEndModal, setShowDayEndModal] = useState(false)
+  const [showDayEndReportModal, setShowDayEndReportModal] = useState(false)
+  const [showReportView, setShowReportView] = useState(false)
+  const [reportData, setReportData] = useState(null)
   const tableRef = useRef(null)
   const [windowWidth, setWindowWidth] = useState(window.innerWidth)
 
@@ -261,10 +269,16 @@ const TaskTable = ({
 
   // Handle cell activation for Excel-like navigation
   const handleCellActivation = useCallback((taskIndex, columnIndex) => {
+    console.log('handleCellActivation called:', { taskIndex, columnIndex })
     const task = filteredAndSortedTasks[taskIndex]
     const column = columns[columnIndex]
 
-    if (!task || !column) return
+    if (!task || !column) {
+      console.log('No task or column found:', { task: !!task, column: !!column })
+      return
+    }
+
+    console.log('Activating cell for column:', column.key, 'type:', column.type)
 
     // Create a mock event for positioning
     const tableElement = tableRef.current
@@ -335,10 +349,18 @@ const TaskTable = ({
       // Only handle navigation when not in a modal, table is focused, and not editing
       if (activeModal || !isNavigating) return
 
+      // Don't handle navigation if date picker is open
+      if (document.body.hasAttribute('data-datepicker-open')) {
+        return
+      }
+
       // Don't handle navigation if user is editing (typing in input/textarea)
       const activeElement = document.activeElement
       if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')) {
-        return
+        // But allow if it's a date picker input that's not actually editable
+        if (!activeElement.classList.contains('react-datepicker__input-container')) {
+          return
+        }
       }
 
       const { taskIndex, columnIndex } = focusedCell
@@ -348,7 +370,9 @@ const TaskTable = ({
       switch (e.key) {
         case 'Enter':
           e.preventDefault()
+          console.log('Enter pressed on cell:', { taskIndex, columnIndex, isNavigating })
           if (taskIndex !== null && columnIndex !== null) {
+            console.log('Activating cell:', { taskIndex, columnIndex })
             handleCellActivation(taskIndex, columnIndex)
           }
           break
@@ -412,6 +436,69 @@ const TaskTable = ({
       return () => document.removeEventListener('keydown', handleKeyDown)
     }
   }, [isNavigating, focusedCell, activeModal, filteredAndSortedTasks, columns, handleCellActivation])
+
+  // Handle date picker Enter key event
+  useEffect(() => {
+    const handleDatePickerEnter = (e) => {
+      if (e.detail?.moveToNextColumn && focusedCell.taskIndex !== null && focusedCell.columnIndex !== null) {
+        const { taskIndex, columnIndex } = focusedCell
+        const maxColumnIndex = columns.length - 1
+        const maxTaskIndex = filteredAndSortedTasks.length - 1
+
+        // Move to next column, or next row if at end of columns
+        const nextColumnIndex = columnIndex < maxColumnIndex ? columnIndex + 1 : 0
+        const nextTaskIndex = columnIndex === maxColumnIndex && taskIndex < maxTaskIndex ? taskIndex + 1 : taskIndex
+
+        setFocusedCell({ taskIndex: nextTaskIndex, columnIndex: nextColumnIndex })
+
+        // Move browser focus to the next cell
+        setTimeout(() => {
+          // First, remove focus from any date picker elements
+          const activeElement = document.activeElement
+          if (activeElement && activeElement.closest('.react-datepicker-wrapper')) {
+            activeElement.blur()
+          }
+
+          // Find the next cell and focus it
+          const nextCell = document.querySelector(
+            `[data-task-index="${nextTaskIndex}"][data-column-index="${nextColumnIndex}"]`
+          )
+
+          if (nextCell) {
+            // Focus the actual input/textarea inside the cell if it exists
+            const editableElement = nextCell.querySelector('input, textarea, [data-editable]')
+            if (editableElement) {
+              editableElement.focus()
+            } else {
+              nextCell.focus()
+            }
+          } else {
+            // Fallback: focus the table
+            if (tableRef.current) {
+              tableRef.current.focus()
+            }
+          }
+
+          // Force navigation state to be active
+          setIsNavigating(true)
+        }, 250)
+      }
+    }
+
+    document.addEventListener('datepicker-enter', handleDatePickerEnter)
+    return () => document.removeEventListener('datepicker-enter', handleDatePickerEnter)
+  }, [focusedCell, columns, filteredAndSortedTasks])
+
+  // Handle report generation
+  const handleShowReport = useCallback((reports, startDate, endDate) => {
+    setReportData({ reports, startDate, endDate })
+    setShowReportView(true)
+  }, [])
+
+  const handleCloseReport = useCallback(() => {
+    setShowReportView(false)
+    setReportData(null)
+  }, [])
 
   // Handle sorting
   const handleSort = useCallback((key) => {
@@ -599,8 +686,11 @@ const TaskTable = ({
 
         {/* Right side buttons */}
         <div className="flex space-x-2">
-          <button className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-md text-sm font-medium">
-            Copy End Report
+          <button
+            onClick={() => setShowDayEndReportModal(true)}
+            className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-md text-sm font-medium"
+          >
+            Day End Report
           </button>
 
           <button
@@ -610,7 +700,10 @@ const TaskTable = ({
             Add Task
           </button>
 
-          <button className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium">
+          <button
+            onClick={() => setShowDayEndModal(true)}
+            className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium"
+          >
             End Day
           </button>
         </div>
@@ -740,6 +833,9 @@ const TaskTable = ({
                   return (
                     <td
                       key={column.key}
+                      data-task-index={taskIndex}
+                      data-column-index={columnIndex}
+                      tabIndex={isFocused ? 0 : -1}
                       className={`px-3 py-3 relative transition-all duration-200 ${
                         isFocused
                           ? 'bg-blue-50 ring-1 ring-blue-300 ring-inset'
@@ -755,9 +851,11 @@ const TaskTable = ({
                         setModalOpenedFrom({ taskIndex, columnIndex })
 
                         // Ensure table gets focus for keyboard navigation
-                        if (tableRef.current) {
-                          tableRef.current.focus()
-                        }
+                        setTimeout(() => {
+                          if (tableRef.current) {
+                            tableRef.current.focus()
+                          }
+                        }, 50)
                       }}
                     >
                       <div className="truncate">
@@ -1262,6 +1360,32 @@ const TaskTable = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Day End Modal */}
+      <DayEndModal
+        isOpen={showDayEndModal}
+        onClose={() => setShowDayEndModal(false)}
+        tasks={filteredAndSortedTasks}
+        currentUser={currentUser}
+      />
+
+      {/* Day End Report Modal */}
+      <DayEndReportModal
+        isOpen={showDayEndReportModal}
+        onClose={() => setShowDayEndReportModal(false)}
+        onShowReport={handleShowReport}
+        currentUser={currentUser}
+      />
+
+      {/* Report View */}
+      {showReportView && reportData && (
+        <ReportView
+          reports={reportData.reports}
+          startDate={reportData.startDate}
+          endDate={reportData.endDate}
+          onClose={handleCloseReport}
+        />
       )}
     </div>
   )
